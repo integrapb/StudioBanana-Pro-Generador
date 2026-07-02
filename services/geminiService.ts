@@ -33,8 +33,8 @@ export interface PromptVariant {
 }
 
 export class GeminiService {
-  private modelName = 'gemini-3.1-flash-image-preview';
-  private analysisModelName = 'gemini-3.1-pro-preview';
+  private modelName = 'gemini-3.1-flash-image';         // Nano Banana 2: multi-image coherence + 4K
+  private analysisModelName = 'gemini-3.1-pro-preview';  // Deep scene & product forensics
 
   private getApiKey(): string {
     if (typeof window !== 'undefined') {
@@ -274,16 +274,36 @@ The master prompt should be 150-250 words of dense, technical, authoritative ins
     if (sourceImage) {
       // Editing mode: send only the source image being edited
       parts.push({ inlineData: { data: sourceImage.data, mimeType: sourceImage.mimeType } });
+
     } else if (productImages.length > 0) {
-      // Generation mode: send the best-angle product image
+      // Generation mode: leverage gemini-3.1-flash-image multi-image coherence.
+      // Strategy:
+      //   1. Send the best-angle product image FIRST (primary product reference)
+      //   2. Send remaining product angle images next (give the model full 3D context)
+      //   3. Send the style reference image LAST (visual target for lighting/colors/scene)
+      // The model will visually match the scene atmosphere from the reference image
+      // instead of relying solely on text descriptions.
+
       let bestIndex = 0;
       if (analyzedConcept && analyzedConcept.bestProductImageIndex !== undefined) {
         bestIndex = analyzedConcept.bestProductImageIndex;
-        if (bestIndex < 0 || bestIndex >= productImages.length) {
-          bestIndex = 0;
-        }
+        if (bestIndex < 0 || bestIndex >= productImages.length) bestIndex = 0;
       }
+
+      // Best angle first
       parts.push({ inlineData: { data: productImages[bestIndex].data, mimeType: productImages[bestIndex].mimeType } });
+
+      // Remaining angles (skip bestIndex to avoid duplicate)
+      productImages.forEach((img, idx) => {
+        if (idx !== bestIndex) {
+          parts.push({ inlineData: { data: img.data, mimeType: img.mimeType } });
+        }
+      });
+
+      // Style reference image: the model uses this to visually clone lighting, colors and scene
+      if (referenceImage) {
+        parts.push({ inlineData: { data: referenceImage.data, mimeType: referenceImage.mimeType } });
+      }
     }
 
     const layers = analyzedConcept?.promptLayers;
@@ -295,8 +315,13 @@ The master prompt should be 150-250 words of dense, technical, authoritative ins
 
     } else if (productImages.length > 0 && analyzedConcept && layers) {
       // ── FULL LAYERED PROMPT ──
-      // We use ALL the extracted analysis layers to build a dense, authoritative prompt.
-      // This is the core improvement: no more discarding the analysis data.
+      // Multi-image layout sent to gemini-3.1-flash-image:
+      //   Images 1..N-1 = product reference angles (fidelity source)
+      //   Image N (last) = style reference (visual target for lighting/colors/scene)
+      // The prompt explicitly labels each image's role so the model understands its inputs.
+
+      const totalProductImgs = productImages.length;
+      const hasStyleRef = !!referenceImage;
 
       const variationSuffix = variationIndex > 0
         ? ` Variation ${variationIndex + 1}: ${analyzedConcept.variationDirections[variationIndex] || "subtle lighting shift"}.`
@@ -306,45 +331,44 @@ The master prompt should be 150-250 words of dense, technical, authoritative ins
         ? `Shot type: ${shotOverride}.`
         : "";
 
-      finalPrompt = `You are generating a high-end commercial product photograph. The product in the provided image is the ABSOLUTE GROUND TRUTH — it must be reproduced with 100% photographic accuracy.
+      finalPrompt = `You are generating a high-end commercial product photograph using ${totalProductImgs} product reference image(s)${hasStyleRef ? " and 1 style reference image" : ""}.
+
+IMAGE ROLES:
+- Image(s) 1${totalProductImgs > 1 ? ` to ${totalProductImgs}` : ""}: PRODUCT REFERENCE — these show the exact product that must appear in the final photo. Copy the product with 100% accuracy: shape, colors, materials, logos, proportions, texture, hardware.${hasStyleRef ? `\n- Last image: STYLE REFERENCE — copy the lighting direction, color temperature, color palette, background environment, mood and overall photographic aesthetic EXACTLY from this image. Do NOT copy the people or subjects from this image.` : ""}
 
 PRODUCT IDENTITY (NON-NEGOTIABLE):
 ${layers.productDNA}
 
 PRODUCT TYPE: ${layers.productCategory}
 
-HOW THE PRODUCT MUST APPEAR IN THIS SCENE:
+HOW THE PRODUCT MUST APPEAR:
 ${layers.productPlacement}
 
-SCENE & ENVIRONMENT:
+SCENE & ENVIRONMENT (match the style reference image):
 ${layers.environmentContext}
 
-LIGHTING (REPLICATE EXACTLY):
+LIGHTING (clone from the style reference image):
 ${layers.lightingPhysics}
 
 CAMERA & OPTICS:
 ${layers.cameraOptics}
 
-COLOR GRADE & AESTHETIC:
+COLOR GRADE & AESTHETIC (match the style reference image):
 ${layers.aestheticGrade}
-
-${layers.subjectDetails ? `SUBJECTS IN SCENE: ${layers.subjectDetails}` : ""}
-${layers.clothingAccessories ? `CLOTHING & ACCESSORIES: ${layers.clothingAccessories}` : ""}
 
 ${shotContext}
 ${userPrompt ? `ADDITIONAL DIRECTION: ${userPrompt}` : ""}
 ${variationSuffix}
 
 ABSOLUTE FIDELITY CONSTRAINTS:
-- The product must be a photographic clone of the reference. Do NOT simplify, stylize, or reinterpret it.
-- Do NOT alter logos, text, proportions, materials, or colors. What you see in the product image is law.
-- Integrate the product naturally into the scene using correct perspective, lighting interaction, and shadow casting.
-- Output must look like a real professional photograph, not an illustration or render.`;
+- Product: photographic clone of the product reference images. Zero simplification of logos, text, materials or colors.
+- Scene: visually match the lighting, colors, and atmosphere from the style reference image.
+- Output: must look like a real, high-quality commercial photograph. Not an illustration, not a render.`;
 
     } else if (productImages.length > 0) {
-      // No analysis done — use a strong fallback prompt
+      // No analysis done — strong fallback prompt
       const shotContext = shotOverride ? `Shot type: ${shotOverride}.` : "Hero Shot.";
-      finalPrompt = `Generate a high-quality commercial product photograph. The product in the provided image must be reproduced with 100% accuracy — identical shape, colors, materials, logos, and proportions. Do not alter or simplify any product details. ${shotContext} Style: ${userPrompt || "Clean studio background, professional luxury commercial lighting, photorealistic."}. The output must look like a real professional photograph.`;
+      finalPrompt = `Generate a high-quality commercial product photograph. The product in the provided image(s) must be reproduced with 100% accuracy — identical shape, colors, materials, logos, and proportions. Do not alter or simplify any product details. ${shotContext} Style: ${userPrompt || "Clean studio background, professional luxury commercial lighting, photorealistic."}. The output must look like a real professional photograph.`;
 
     } else {
       // No product image at all
