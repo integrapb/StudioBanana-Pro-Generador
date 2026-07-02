@@ -3,13 +3,15 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { ImageFile } from "../types";
 
 export interface PromptLayers {
-  productDNA: string;      
-  lightingPhysics: string; 
-  environmentContext: string; 
-  cameraOptics: string;    
-  aestheticGrade: string;
-  subjectDetails?: string; 
-  clothingAccessories?: string; 
+  productDNA: string;         // Physical identity: materials, colors, logos, exact shapes
+  productCategory: string;    // e.g. "hat", "bottle", "watch" - drives placement logic
+  productPlacement: string;   // How/where the product should appear in the scene
+  lightingPhysics: string;    // Light sources, direction, intensity, shadows
+  environmentContext: string; // Background, surfaces, props, depth of field
+  cameraOptics: string;       // Focal length, aperture, angle, perspective
+  aestheticGrade: string;     // Overall mood, color grade, post-processing style
+  subjectDetails?: string;    // Human subjects if present
+  clothingAccessories?: string; // Clothing worn by subjects
 }
 
 export interface AnalyzedConcept {
@@ -50,26 +52,62 @@ export class GeminiService {
 
   async analyzeReferenceImage(productImages: ImageFile[], styleImage: ImageFile): Promise<AnalyzedConcept> {
     const ai = this.getClient();
+
+    // We send ALL product images first so the model sees every angle,
+    // then the reference style image last so it is visually fresh when analyzing the scene.
     const parts = [
       ...productImages.map(img => ({ inlineData: { data: img.data, mimeType: img.mimeType } })),
       { inlineData: { data: styleImage.data, mimeType: styleImage.mimeType } },
-      { 
-        text: `Actúa como un Ingeniero de Producto y Director de Fotografía Industrial. 
-        Tu misión es realizar una DISECCIÓN MICROSCÓPICA del producto y la escena de estilo.
-        
-        PASO 1: ANÁLISIS DE PRODUCTO (FIDELIDAD TOTAL)
-        - Identifica materiales exactos (ej: aluminio cepillado, vidrio templado, cuero granulado).
-        - Localiza logos, tipografías y marcas con precisión de coordenadas.
-        - Analiza la geometría 3D basándote en los múltiples ángulos suministrados.
-        - Identifica detalles mínimos: tornillos, costuras, reflejos internos, imperfecciones de fabricación.
-        - MUY IMPORTANTE: Evalúa todas las imágenes del producto proporcionadas y determina cuál es la mejor (índice 0, 1, 2...) para integrar en la escena de estilo, considerando ángulo, iluminación y perspectiva.
-        
-        PASO 2: ANÁLISIS DE ESCENA (ESTILO)
-        - Identifica sujetos, su vestuario detallado (especialmente sombreros y accesorios), entorno y luz.
-        
-        PASO 3: INTEGRACIÓN
-        Crea un Master Prompt que exija al generador mantener el PRODUCTO IDÉNTICO (clon absoluto) integrándolo en la atmósfera de estilo. 
-        El producto NO debe ser una interpretación genérica, debe ser EL MISMO de las fotos.` 
+      {
+        text: `You are a world-class Commercial Photography Director and Product Engineer with 20 years of experience directing luxury brand campaigns.
+
+You have been given ${productImages.length} image(s) of a product (shown first) and 1 reference style/scene image (shown last).
+
+YOUR MISSION: Perform a forensic-level analysis of both the product and the scene, then construct a generation blueprint that will produce a result where THE PRODUCT IS INDISTINGUISHABLE FROM THE ORIGINAL PHOTOS.
+
+═══ PART 1: PRODUCT FORENSICS (Images 1 to ${productImages.length}) ═══
+
+Analyze EVERY product image provided and extract:
+
+1. PRODUCT CATEGORY — What type of product is this? (e.g., "hat/cap", "glass bottle", "wristwatch", "sneaker", "perfume bottle", "skincare tube"). This determines placement logic.
+
+2. PRODUCT DNA — Build an exhaustive physical identity document:
+   - Exact shape and silhouette geometry
+   - Primary material(s) with surface finish (e.g., "matte black ABS plastic", "hand-stitched tan leather", "brushed 316L stainless steel")
+   - Every color with its exact shade (e.g., "dusty rose #C9A0A0", "cream off-white", "gunmetal grey")
+   - ALL text, logos, emblems visible: exact font style, position, color, size relative to product
+   - Hardware details: buttons, zippers, stitching, seams, rivets
+   - Transparency or reflectivity properties
+   - Any unique distinguishing features or imperfections
+
+3. BEST IMAGE — Which index (0-based) shows the product at the ideal angle to be integrated into the reference scene? Consider: which angle best matches the scene's perspective and would look most natural.
+
+4. PRODUCT PLACEMENT LOGIC — Based on the product category and the reference scene:
+   - If it is a WEARABLE (hat, watch, jewelry, glasses, shoes): must be shown worn by a person/model matching the scene
+   - If it is a PACKAGED GOOD (bottle, box, can, tube): must be placed on a surface in the scene
+   - If it is a FOOD/BEVERAGE: must be shown in context (table, hand, environment)
+   - Describe exactly how and where the product should appear in the final image
+
+═══ PART 2: SCENE FORENSICS (Last image = Style Reference) ═══
+
+Analyze the reference scene and extract:
+- Lighting setup: key light position, fill light, rim light, ambient light color temperature (warm/cool/neutral in Kelvin)
+- Environment: exact setting (indoor/outdoor, surface material, background elements, depth)
+- Camera technical specs: estimated focal length (mm), aperture (f-stop), shooting angle (eye-level/low-angle/top-down), sensor perspective
+- Color palette: dominant colors, shadows, highlights, overall color grade (matte, cinematic, bright, moody)
+- Mood/vibe: the emotional feeling and commercial style of the scene
+- Human subjects: if people are present, describe their appearance, pose, clothing in detail
+
+═══ PART 3: INTEGRATION BLUEPRINT ═══
+
+Create a MASTER PROMPT that will be sent to an image generation AI. This prompt must:
+1. Open with an ABSOLUTE PRODUCT IDENTITY DECLARATION — every detail extracted in Part 1 stated as non-negotiable facts
+2. Specify the EXACT PLACEMENT of the product as determined in the placement logic
+3. Describe the SCENE with the precision extracted in Part 2
+4. Use authoritative, directive language (NOT suggestive). Say "MUST SHOW", "EXACT COLOR IS", "IDENTICAL TO", not "try to", "similar to", "like"
+5. End with FIDELITY CONSTRAINTS: "Reproduce the product with 100% accuracy. Do not simplify logos, do not alter proportions, do not change colors. The product shown must be a photographic clone of the reference."
+
+The master prompt should be 150-250 words of dense, technical, authoritative instructions.`
       }
     ];
 
@@ -87,23 +125,78 @@ export class GeminiService {
             colorPalette: { type: Type.STRING },
             vibe: { type: Type.STRING },
             variationDirections: { type: Type.ARRAY, items: { type: Type.STRING } },
-            bestProductImageIndex: { type: Type.INTEGER, description: "El índice (0-based) de la mejor imagen del producto para usar en la generación." },
+            bestProductImageIndex: {
+              type: Type.INTEGER,
+              description: "0-based index of the product image that best matches the scene angle and perspective."
+            },
             promptLayers: {
               type: Type.OBJECT,
               properties: {
-                productDNA: { type: Type.STRING, description: "Descripción técnica e irrefutable de la identidad física del producto: materiales, logos, formas exactas y micro-detalles." },
-                lightingPhysics: { type: Type.STRING },
-                environmentContext: { type: Type.STRING },
-                cameraOptics: { type: Type.STRING },
-                aestheticGrade: { type: Type.STRING },
-                subjectDetails: { type: Type.STRING },
-                clothingAccessories: { type: Type.STRING }
+                productDNA: {
+                  type: Type.STRING,
+                  description: "Complete forensic description of the product: every material, color, logo, shape, hardware detail. This is the ground truth."
+                },
+                productCategory: {
+                  type: Type.STRING,
+                  description: "The product type category (e.g. 'hat/cap', 'glass bottle', 'wristwatch'). Drives placement logic."
+                },
+                productPlacement: {
+                  type: Type.STRING,
+                  description: "Exact instructions on how the product must appear in the scene (worn, placed on surface, held, etc.) based on product category."
+                },
+                lightingPhysics: {
+                  type: Type.STRING,
+                  description: "Exact lighting setup from the reference scene: key light angle, color temperature, shadows, highlights."
+                },
+                environmentContext: {
+                  type: Type.STRING,
+                  description: "Setting, surfaces, background, props, depth of field from the reference scene."
+                },
+                cameraOptics: {
+                  type: Type.STRING,
+                  description: "Camera specs: focal length, aperture, shooting angle, perspective."
+                },
+                aestheticGrade: {
+                  type: Type.STRING,
+                  description: "Color grade, mood, post-processing style of the reference scene."
+                },
+                subjectDetails: {
+                  type: Type.STRING,
+                  description: "If humans are present in the reference: appearance, pose, skin tone, gender presentation."
+                },
+                clothingAccessories: {
+                  type: Type.STRING,
+                  description: "If humans are present: exact clothing items worn, colors, fit, style."
+                }
               },
-              required: ["productDNA", "lightingPhysics", "environmentContext", "cameraOptics", "aestheticGrade", "subjectDetails", "clothingAccessories"]
+              required: [
+                "productDNA",
+                "productCategory",
+                "productPlacement",
+                "lightingPhysics",
+                "environmentContext",
+                "cameraOptics",
+                "aestheticGrade",
+                "subjectDetails",
+                "clothingAccessories"
+              ]
             },
-            masterPrompt: { type: Type.STRING, description: "Prompt de alto rendimiento que prioriza la identidad del producto sobre todo lo demás." }
+            masterPrompt: {
+              type: Type.STRING,
+              description: "The complete, authoritative generation prompt (150-250 words) with absolute product identity declaration, exact placement, scene description, and fidelity constraints."
+            }
           },
-          required: ["lighting", "environment", "camera", "colorPalette", "vibe", "variationDirections", "bestProductImageIndex", "promptLayers", "masterPrompt"]
+          required: [
+            "lighting",
+            "environment",
+            "camera",
+            "colorPalette",
+            "vibe",
+            "variationDirections",
+            "bestProductImageIndex",
+            "promptLayers",
+            "masterPrompt"
+          ]
         }
       }
     });
@@ -117,7 +210,7 @@ export class GeminiService {
       contents: {
         parts: [
           { inlineData: { data: image.data, mimeType: image.mimeType } },
-          { text: "Realiza ingeniería inversa total a esta imagen. Identifica sujetos, vestimenta detallada, entorno, luz y parámetros de cámara. Genera 3 variantes de prompts técnicos de alta fidelidad (Publicitario, Minimalista, Dramático) que permitan replicar esta exactitud visual. Devuelve un ARRAY de objetos JSON." }
+          { text: "You are a commercial photography director. Perform a full reverse-engineering analysis of this image. Identify all subjects with exact clothing/accessories, environment, lighting setup, camera angle and lens, color grade and mood. Generate 3 high-fidelity technical prompt variants (Advertising/Commercial, Minimalist/Clean, Dramatic/Editorial) that would allow an AI image generator to replicate this scene's visual precision exactly. Return a JSON ARRAY of objects." }
         ]
       },
       config: {
@@ -143,19 +236,19 @@ export class GeminiService {
     const ai = this.getClient();
     const response = await ai.models.generateContent({
       model: this.analysisModelName,
-      contents: `Eres un ingeniero de prompts experto. Toma este prompt original y ajústalo según la instrucción del usuario. 
-      Instrucción: "${instruction}"
-      Prompt Original: "${originalPrompt}"
+      contents: `You are an expert prompt engineer for commercial photography AI. Take the original prompt and adjust it according to the user's instruction. Preserve all product fidelity constraints and technical specifications — only modify what the instruction requests.
+      Instruction: "${instruction}"
+      Original Prompt: "${originalPrompt}"
       
-      Devuelve un objeto JSON con el nuevo prompt ajustado y una breve descripción técnica de lo que se cambió.`,
+      Return a JSON object with the adjusted prompt and a brief technical explanation of the changes made.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            name: { type: Type.STRING, description: "Nombre de la variante (ajustada)" },
-            prompt: { type: Type.STRING, description: "El prompt completo y optimizado" },
-            technical_specs: { type: Type.STRING, description: "Explicación de los cambios realizados" }
+            name: { type: Type.STRING, description: "Name of the adjusted variant" },
+            prompt: { type: Type.STRING, description: "The complete, optimized prompt" },
+            technical_specs: { type: Type.STRING, description: "Explanation of changes made" }
           },
           required: ["name", "prompt", "technical_specs"]
         }
@@ -177,15 +270,12 @@ export class GeminiService {
   ): Promise<string> {
     const ai = this.getClient();
     const parts: any[] = [];
-    
-    // Para evitar errores 500 (Internal Error), el modelo de generación de imágenes
-    // solo soporta UNA imagen de entrada a la vez.
+
     if (sourceImage) {
-      // Modo edición: enviamos solo la imagen original
+      // Editing mode: send only the source image being edited
       parts.push({ inlineData: { data: sourceImage.data, mimeType: sourceImage.mimeType } });
     } else if (productImages.length > 0) {
-      // Modo generación: enviamos la mejor imagen del producto. 
-      // El estilo se aplica a través del prompt detallado.
+      // Generation mode: send the best-angle product image
       let bestIndex = 0;
       if (analyzedConcept && analyzedConcept.bestProductImageIndex !== undefined) {
         bestIndex = analyzedConcept.bestProductImageIndex;
@@ -197,19 +287,68 @@ export class GeminiService {
     }
 
     const layers = analyzedConcept?.promptLayers;
-
     let finalPrompt = "";
 
     if (sourceImage) {
-      finalPrompt = `Edit this image: ${userPrompt}. Keep the main subject exactly the same.`;
+      // Editing an already-generated image
+      finalPrompt = `Edit this image following this instruction: ${userPrompt}. Preserve all other elements exactly as they are, especially the main product subject.`;
+
+    } else if (productImages.length > 0 && analyzedConcept && layers) {
+      // ── FULL LAYERED PROMPT ──
+      // We use ALL the extracted analysis layers to build a dense, authoritative prompt.
+      // This is the core improvement: no more discarding the analysis data.
+
+      const variationSuffix = variationIndex > 0
+        ? ` Variation ${variationIndex + 1}: ${analyzedConcept.variationDirections[variationIndex] || "subtle lighting shift"}.`
+        : "";
+
+      const shotContext = shotOverride
+        ? `Shot type: ${shotOverride}.`
+        : "";
+
+      finalPrompt = `You are generating a high-end commercial product photograph. The product in the provided image is the ABSOLUTE GROUND TRUTH — it must be reproduced with 100% photographic accuracy.
+
+PRODUCT IDENTITY (NON-NEGOTIABLE):
+${layers.productDNA}
+
+PRODUCT TYPE: ${layers.productCategory}
+
+HOW THE PRODUCT MUST APPEAR IN THIS SCENE:
+${layers.productPlacement}
+
+SCENE & ENVIRONMENT:
+${layers.environmentContext}
+
+LIGHTING (REPLICATE EXACTLY):
+${layers.lightingPhysics}
+
+CAMERA & OPTICS:
+${layers.cameraOptics}
+
+COLOR GRADE & AESTHETIC:
+${layers.aestheticGrade}
+
+${layers.subjectDetails ? `SUBJECTS IN SCENE: ${layers.subjectDetails}` : ""}
+${layers.clothingAccessories ? `CLOTHING & ACCESSORIES: ${layers.clothingAccessories}` : ""}
+
+${shotContext}
+${userPrompt ? `ADDITIONAL DIRECTION: ${userPrompt}` : ""}
+${variationSuffix}
+
+ABSOLUTE FIDELITY CONSTRAINTS:
+- The product must be a photographic clone of the reference. Do NOT simplify, stylize, or reinterpret it.
+- Do NOT alter logos, text, proportions, materials, or colors. What you see in the product image is law.
+- Integrate the product naturally into the scene using correct perspective, lighting interaction, and shadow casting.
+- Output must look like a real professional photograph, not an illustration or render.`;
+
     } else if (productImages.length > 0) {
-      if (analyzedConcept) {
-        finalPrompt = `Edit this image to place the product in a new scene. Keep the product exactly the same. Scene: ${analyzedConcept.masterPrompt}. ${userPrompt || ""}`;
-      } else {
-        finalPrompt = `Edit this image to generate a high-quality product photo. Shot: ${shotOverride || "Hero Shot"}. Style: ${userPrompt || "Commercial luxury"}.`;
-      }
+      // No analysis done — use a strong fallback prompt
+      const shotContext = shotOverride ? `Shot type: ${shotOverride}.` : "Hero Shot.";
+      finalPrompt = `Generate a high-quality commercial product photograph. The product in the provided image must be reproduced with 100% accuracy — identical shape, colors, materials, logos, and proportions. Do not alter or simplify any product details. ${shotContext} Style: ${userPrompt || "Clean studio background, professional luxury commercial lighting, photorealistic."}. The output must look like a real professional photograph.`;
+
     } else {
-      finalPrompt = `Generate a high-quality product photo. Shot: ${shotOverride || "Hero Shot"}. Style: ${userPrompt || "Commercial luxury"}.`;
+      // No product image at all
+      finalPrompt = `Generate a high-quality commercial product photograph. ${shotOverride ? `Shot type: ${shotOverride}.` : ""} Style: ${userPrompt || "Commercial luxury, professional studio lighting, photorealistic."}.`;
     }
 
     parts.push({ text: finalPrompt });
@@ -217,7 +356,7 @@ export class GeminiService {
     const config: any = {};
     const hasImage = parts.some(p => p.inlineData);
     if (!hasImage) {
-      config.imageConfig = { 
+      config.imageConfig = {
         aspectRatio: aspectRatio as any
       };
     }
@@ -241,16 +380,26 @@ export class GeminiService {
   ): Promise<string> {
     const ai = this.getClient();
     const parts: any[] = [];
-    
+
     if (referenceImage) {
       parts.push({ inlineData: { data: referenceImage.data, mimeType: referenceImage.mimeType } });
     }
 
     let finalPrompt = "";
-    if (analyzedConcept) {
-      finalPrompt = `Generate a high-quality product photography background scene. Style/Scene: ${analyzedConcept.masterPrompt}. Extra description: ${userPrompt || ""}. CRITICAL: Do NOT generate any central product, package, bottle or subject. Keep the center of the surface empty and clean, ready to place a product. Ensure professional lighting, realistic textures, and depth of field.`;
+    const layers = analyzedConcept?.promptLayers;
+
+    if (analyzedConcept && layers) {
+      finalPrompt = `Generate a high-quality product photography BACKGROUND SCENE — no product present.
+
+SCENE ENVIRONMENT: ${layers.environmentContext}
+LIGHTING SETUP: ${layers.lightingPhysics}
+CAMERA OPTICS: ${layers.cameraOptics}
+COLOR GRADE: ${layers.aestheticGrade}
+${userPrompt ? `ADDITIONAL DETAILS: ${userPrompt}` : ""}
+
+CRITICAL: The center of the scene must be completely EMPTY — no product, no bottle, no object, no box placed in the middle. Leave a clean, well-lit surface area in the center ready for a product to be placed. The scene should look like a professional photography set waiting for the hero product. Photorealistic, high resolution, commercial quality.`;
     } else {
-      finalPrompt = `Generate a high-quality product photography background scene. Scene: ${userPrompt || "Luxury marble countertop in a modern bright studio, soft lighting, blurred background"}. CRITICAL: Do NOT generate any central product, package, bottle or subject. Keep the center of the surface empty and clean, ready to place a product. Ensure professional lighting, realistic textures, and depth of field.`;
+      finalPrompt = `Generate a high-quality product photography background scene. Scene description: ${userPrompt || "Luxury marble countertop in a modern bright studio, soft diffused lighting, blurred warm background, professional commercial photography set."} CRITICAL: The center must be completely EMPTY — no product, no object placed in the middle. Leave a clean surface ready to receive a product. Photorealistic, high resolution, commercial quality.`;
     }
 
     parts.push({ text: finalPrompt });
@@ -258,7 +407,7 @@ export class GeminiService {
     const config: any = {};
     const hasImage = parts.some(p => p.inlineData);
     if (!hasImage) {
-      config.imageConfig = { 
+      config.imageConfig = {
         aspectRatio: aspectRatio as any
       };
     }
