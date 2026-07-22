@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImageFile, AppStatus, GenerationResult } from './types';
+import { ImageFile, AppStatus, GenerationResult, ReferenceMode } from './types';
 import { GeminiService, AnalyzedConcept, PromptVariant } from './services/geminiService';
 import { SavedProduct } from './services/productStore';
 import { ProductLibrary } from './components/ProductLibrary';
+import { ReferenceModeSelector } from './components/ReferenceModeSelector';
 import { ImageUploader } from './components/ImageUploader';
 import { ImageInspector } from './components/ImageInspector';
 import { ImageMasker } from './components/ImageMasker';
@@ -39,7 +40,10 @@ const ResultCard: React.FC<{
 
   return (
     <div className="group relative bg-[#020617] rounded-[2.5rem] overflow-hidden border border-white/5 shadow-2xl animate-in fade-in slide-in-from-bottom-10 duration-700">
-      <div className="aspect-square bg-black relative">
+      <div
+        className="bg-black relative overflow-hidden"
+        style={{ aspectRatio: (res.aspectRatio || '1:1').replace(':', ' / ') }}
+      >
         <img src={res.imageUrl} alt="Result" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-[10s]" />
         
         {isEditing && (
@@ -214,6 +218,8 @@ const App: React.FC = () => {
   const [productImages, setProductImages] = useState<ImageFile[]>([]);
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [referenceImage, setReferenceImage] = useState<ImageFile[]>([]);
+  const [referenceMode, setReferenceMode] = useState<ReferenceMode>('current');
+  const [referenceInstruction, setReferenceInstruction] = useState('');
   const [analyzedData, setAnalyzedData] = useState<AnalyzedConcept | null>(null);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
   const [prompt, setPrompt] = useState('');
@@ -264,6 +270,8 @@ const App: React.FC = () => {
     // Reset any existing analysis since it was based on a different product
     setAnalyzedData(null);
     setReferenceImage([]);
+    setReferenceMode('current');
+    setReferenceInstruction('');
     setPrompt('');
   };
 
@@ -272,6 +280,8 @@ const App: React.FC = () => {
     setActiveProductId(null);
     setAnalyzedData(null);
     setReferenceImage([]);
+    setReferenceMode('current');
+    setReferenceInstruction('');
     setPrompt('');
   };
 
@@ -342,7 +352,8 @@ const App: React.FC = () => {
     setResults(prev => [{
       imageUrl: exportedDataUrl,
       prompt: `Montaje Híbrido: ${composerPrompt || "Fondo personalizado"}`,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      aspectRatio: '1:1'
     }, ...prev]);
     setActiveTool('generator');
     alert("¡Montaje exportado con éxito a la galería principal!");
@@ -355,6 +366,8 @@ const App: React.FC = () => {
       return;
     }
     setReferenceImage(files);
+    setReferenceMode('current');
+    setReferenceInstruction('');
     setIsAnalyzingStyle(true);
     try {
       const service = getService();
@@ -387,8 +400,19 @@ const App: React.FC = () => {
       
       for (let i = 0; i < variationCount; i++) {
         setProgress(p => ({ ...p, current: p.current + 1 }));
-        const url = await service.generateProductImage(productImages, referenceImage[0] || null, prompt, i, analyzedData || undefined, undefined, null, null, selectedRatio);
-        setResults(prev => [{ imageUrl: url, prompt, timestamp: Date.now() + i }, ...prev]);
+        const url = await service.generateProductImage(
+          productImages,
+          referenceImage[0] || null,
+          prompt,
+          i,
+          analyzedData || undefined,
+          undefined,
+          null,
+          null,
+          selectedRatio,
+          { mode: referenceMode, instruction: referenceInstruction }
+        );
+        setResults(prev => [{ imageUrl: url, prompt, timestamp: Date.now() + i, aspectRatio: selectedRatio }, ...prev]);
         if (i < variationCount - 1) {
           await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
         }
@@ -397,8 +421,19 @@ const App: React.FC = () => {
       if (selectedShot) {
         setProgress(p => ({ ...p, current: p.current + 1 }));
         const shotInfo = SHOT_TYPES.find(s => s.id === selectedShot);
-        const url = await service.generateProductImage(productImages, referenceImage[0] || null, prompt, 0, analyzedData || undefined, shotInfo?.label, null, null, selectedRatio);
-        setResults(prev => [{ imageUrl: url, prompt: `Especial: ${shotInfo?.label}`, timestamp: Date.now() + 99 }, ...prev]);
+        const url = await service.generateProductImage(
+          productImages,
+          referenceImage[0] || null,
+          prompt,
+          0,
+          analyzedData || undefined,
+          shotInfo?.label,
+          null,
+          null,
+          selectedRatio,
+          { mode: referenceMode, instruction: referenceInstruction }
+        );
+        setResults(prev => [{ imageUrl: url, prompt: `Especial: ${shotInfo?.label}`, timestamp: Date.now() + 99, aspectRatio: selectedRatio }, ...prev]);
       }
 
       setStatus(AppStatus.SUCCESS);
@@ -549,7 +584,12 @@ const App: React.FC = () => {
                     maxFiles={1} 
                     images={referenceImage} 
                     onUpload={handleStyleReferenceUpload} 
-                    onRemove={() => { setReferenceImage([]); setAnalyzedData(null); }} 
+                    onRemove={() => {
+                      setReferenceImage([]);
+                      setAnalyzedData(null);
+                      setReferenceMode('current');
+                      setReferenceInstruction('');
+                    }}
                     description="Clona la luz y atmósfera de esta imagen." 
                   />
                   {isAnalyzingStyle && (
@@ -558,6 +598,15 @@ const App: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {analyzedData && referenceImage.length > 0 && (
+                  <ReferenceModeSelector
+                    mode={referenceMode}
+                    instruction={referenceInstruction}
+                    onModeChange={setReferenceMode}
+                    onInstructionChange={setReferenceInstruction}
+                  />
+                )}
                 
                 <div className="space-y-4">
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">3. Relación de Aspecto</label>
@@ -780,7 +829,7 @@ const App: React.FC = () => {
                         const service = getService();
                         const source = { id: 'edit', data: url.split(',')[1], mimeType: 'image/png', preview: url };
                         const resUrl = await service.generateProductImage(productImages, null, p, 0, analyzedData || undefined, undefined, source, mask, selectedRatio);
-                        setResults(prev => [{ imageUrl: resUrl, prompt: `Refinado: ${p}`, timestamp: Date.now() }, ...prev]);
+                        setResults(prev => [{ imageUrl: resUrl, prompt: `Refinado: ${p}`, timestamp: Date.now(), aspectRatio: selectedRatio }, ...prev]);
                       }} 
                     />
                   ))}

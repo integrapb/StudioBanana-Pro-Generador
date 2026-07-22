@@ -10,6 +10,19 @@ export interface GenerationResult {
   imageUrl: string;
   prompt: string;
   timestamp: number;
+  aspectRatio?: string;
+}
+
+export type ReferenceMode =
+  | 'current'
+  | 'preserve-photo'
+  | 'replace-person'
+  | 'replace-background'
+  | 'inspiration';
+
+export interface ReferenceIntent {
+  mode: ReferenceMode;
+  instruction?: string;
 }
 
 export enum AppStatus {
@@ -18,4 +31,13 @@ export enum AppStatus {
   GENERATING = 'generating',
   SUCCESS = 'success',
   ERROR = 'error'
+}
+
+declare global {
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
 }
