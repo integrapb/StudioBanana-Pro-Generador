@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { ImageFile, ReferenceIntent } from "../types";
+import { ImageFile } from "../types";
 
 export interface PromptLayers {
   productDNA: string;         // Physical identity: materials, colors, logos, exact shapes
@@ -30,43 +30,6 @@ export interface PromptVariant {
   name: string;
   prompt: string;
   technical_specs: string;
-}
-
-function getStyleReferenceRole(intent: ReferenceIntent): string {
-  switch (intent.mode) {
-    case 'preserve-photo':
-      return 'STYLE AND COMPOSITION REFERENCE — preserve the visible framing, camera position, background, people, pose, wardrobe, props, lighting and spatial relationships. Integrate the product without intentionally redesigning the photograph.';
-    case 'replace-person':
-      return 'SCENE REFERENCE — preserve the background, framing, camera, lighting, pose structure, props and spatial relationships, but replace the visible human subject with a different fictional adult person.';
-    case 'replace-background':
-      return 'SUBJECT AND COMPOSITION REFERENCE — preserve the visible people, pose, product placement, camera angle and framing, but replace the environment/background as directed.';
-    case 'inspiration':
-      return 'AESTHETIC REFERENCE ONLY — extract lighting quality, lens character, color palette, contrast, tone and production value. Do not recreate the same background, people or composition.';
-    case 'current':
-    default:
-      return 'STYLE REFERENCE — copy the lighting direction, color temperature, color palette, background environment, mood and overall photographic aesthetic EXACTLY from this image. Do NOT copy the people or subjects from this image.';
-  }
-}
-
-function getReferenceDirective(intent: ReferenceIntent): string {
-  const instruction = intent.instruction?.trim();
-  switch (intent.mode) {
-    case 'preserve-photo':
-      return `REFERENCE TRANSFORMATION MODE — PRESERVE PHOTOGRAPH:
-Recreate the reference photograph's visible composition as closely as possible: same framing, camera viewpoint, background, people, pose, wardrobe, props, lighting direction and relative placement. The required change is integrating the exact product from the product reference images. Preserve all other visible scene decisions unless a minimal adjustment is necessary for physically plausible product integration.`;
-    case 'replace-person':
-      return `REFERENCE TRANSFORMATION MODE — REPLACE PERSON:
-Keep the reference background, composition, camera viewpoint, lighting, pose structure, props and product placement. Replace the visible human subject with a different fictional adult person. ${instruction ? `NEW PERSON DIRECTION: ${instruction}` : 'Use a commercially appropriate adult model who fits the scene naturally.'} Do not alter the product identity.`;
-    case 'replace-background':
-      return `REFERENCE TRANSFORMATION MODE — REPLACE BACKGROUND:
-Keep the visible subject, pose, product placement, camera angle, framing and lighting logic. Replace only the environment/background. ${instruction ? `NEW BACKGROUND DIRECTION: ${instruction}` : 'Create a distinct, commercially appropriate environment that preserves the original production quality.'} Do not alter the product identity.`;
-    case 'inspiration':
-      return `REFERENCE TRANSFORMATION MODE — AESTHETIC INSPIRATION ONLY:
-Create an original photograph. Transfer only the reference's lighting quality, lens character, depth of field, color palette, contrast, tone, mood and professional production value. Do not reproduce its specific people, background, props or composition. ${instruction ? `NEW CREATIVE DIRECTION: ${instruction}` : 'Develop a new commercial composition appropriate for the product.'}`;
-    case 'current':
-    default:
-      return '';
-  }
 }
 
 export class GeminiService {
@@ -303,8 +266,7 @@ The master prompt should be 150-250 words of dense, technical, authoritative ins
     shotOverride?: string,
     sourceImage?: ImageFile | null,
     maskImage?: string | null,
-    aspectRatio: string = "1:1",
-    referenceIntent: ReferenceIntent = { mode: 'current' }
+    aspectRatio: string = "1:1"
   ): Promise<string> {
     const ai = this.getClient();
     const parts: any[] = [];
@@ -369,12 +331,10 @@ The master prompt should be 150-250 words of dense, technical, authoritative ins
         ? `Shot type: ${shotOverride}.`
         : "";
 
-      const styleReferenceRole = getStyleReferenceRole(referenceIntent);
-
       finalPrompt = `You are generating a high-end commercial product photograph using ${totalProductImgs} product reference image(s)${hasStyleRef ? " and 1 style reference image" : ""}.
 
 IMAGE ROLES:
-- Image(s) 1${totalProductImgs > 1 ? ` to ${totalProductImgs}` : ""}: PRODUCT REFERENCE — these show the exact product that must appear in the final photo. Copy the product with 100% accuracy: shape, colors, materials, logos, proportions, texture, hardware.${hasStyleRef ? `\n- Last image: ${styleReferenceRole}` : ""}
+- Image(s) 1${totalProductImgs > 1 ? ` to ${totalProductImgs}` : ""}: PRODUCT REFERENCE — these show the exact product that must appear in the final photo. Copy the product with 100% accuracy: shape, colors, materials, logos, proportions, texture, hardware.${hasStyleRef ? `\n- Last image: STYLE REFERENCE — copy the lighting direction, color temperature, color palette, background environment, mood and overall photographic aesthetic EXACTLY from this image. Do NOT copy the people or subjects from this image.` : ""}
 
 PRODUCT IDENTITY (NON-NEGOTIABLE):
 ${layers.productDNA}
@@ -415,18 +375,15 @@ ABSOLUTE FIDELITY CONSTRAINTS:
       finalPrompt = `Generate a high-quality commercial product photograph. ${shotOverride ? `Shot type: ${shotOverride}.` : ""} Style: ${userPrompt || "Commercial luxury, professional studio lighting, photorealistic."}.`;
     }
 
-    const referenceDirective = referenceImage ? getReferenceDirective(referenceIntent) : '';
-    if (referenceDirective) {
-      finalPrompt += `\n\n${referenceDirective}\nThis transformation mode overrides any conflicting scene or subject instruction above. Product fidelity remains non-negotiable.`;
-    }
-
     parts.push({ text: finalPrompt });
 
-    const config = {
-      imageConfig: {
-        aspectRatio
-      }
-    };
+    const config: any = {};
+    const hasImage = parts.some(p => p.inlineData);
+    if (!hasImage) {
+      config.imageConfig = {
+        aspectRatio: aspectRatio as any
+      };
+    }
 
     const response = await ai.models.generateContent({
       model: this.modelName,
@@ -471,11 +428,13 @@ CRITICAL: The center of the scene must be completely EMPTY — no product, no bo
 
     parts.push({ text: finalPrompt });
 
-    const config = {
-      imageConfig: {
-        aspectRatio
-      }
-    };
+    const config: any = {};
+    const hasImage = parts.some(p => p.inlineData);
+    if (!hasImage) {
+      config.imageConfig = {
+        aspectRatio: aspectRatio as any
+      };
+    }
 
     const response = await ai.models.generateContent({
       model: this.modelName,
