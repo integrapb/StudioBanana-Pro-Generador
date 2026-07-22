@@ -1,151 +1,63 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ImageFile } from '../types';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ProductAngle, ProductView } from '../types';
 import {
   SavedProduct,
+  createSavedProduct,
+  deleteProduct,
   getAllProducts,
   saveProduct,
-  deleteProduct,
-  createSavedProduct,
+  withUpdatedPassport,
 } from '../services/productStore';
+import { createPassport, GENERATABLE_PRODUCT_ANGLES, getPassportCoverage, PRODUCT_ANGLES } from '../services/productPassport';
+import { ProductPassportCapture } from './ProductPassportCapture';
 
 interface Props {
   activeProductId: string | null;
   onSelect: (product: SavedProduct) => void;
   onClear: () => void;
+  onInferAngle: (product: SavedProduct, angle: ProductAngle) => Promise<SavedProduct>;
 }
 
-// ── Tiny inline uploader for the creation modal ───────────────────────────────
-function MiniUploader({
-  images,
-  onChange,
-}: {
-  images: ImageFile[];
-  onChange: (imgs: ImageFile[]) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const readFile = (file: File): Promise<ImageFile> =>
-    new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let w = img.width;
-          let h = img.height;
-          const maxDim = 1024;
-          if (w > maxDim || h > maxDim) {
-            if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
-            else       { w = Math.round((w * maxDim) / h); h = maxDim; }
-          }
-          canvas.width  = w;
-          canvas.height = h;
-          canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
-
-          let targetType = file.type;
-          if (targetType !== 'image/jpeg' && targetType !== 'image/webp') targetType = 'image/png';
-
-          const dataUrl = canvas.toDataURL(targetType);
-          const base64  = dataUrl.split(',')[1];
-
-          resolve({
-            id:       crypto.randomUUID(),
-            data:     base64,
-            mimeType: targetType,
-            preview:  dataUrl,           // <-- this is what ImageUploader uses for display
-          });
-        };
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-
-
-  const handleFiles = async (files: FileList) => {
-    const slots = 5 - images.length;
-    if (slots <= 0) return;
-    const next = Array.from(files).slice(0, slots);
-    const loaded = await Promise.all(next.map(readFile));
-    onChange([...images, ...loaded]);
-  };
-
-  return (
-    <div className="space-y-3">
-      {/* Drop zone */}
-      <div
-        onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
-        className="border-2 border-dashed border-white/10 rounded-2xl p-6 text-center cursor-pointer hover:border-blue-500/40 transition-colors"
-      >
-        <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
-          {images.length === 0 ? 'Arrastra o haz clic para subir ángulos' : `${images.length}/5 ángulos`}
-        </p>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => e.target.files && handleFiles(e.target.files)}
-        />
-      </div>
-
-      {/* Thumbnails */}
-      {images.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          {images.map((img) => (
-            <div key={img.id} className="relative group">
-              <img
-                src={img.preview}
-                className="w-14 h-14 object-cover rounded-xl border border-white/10"
-                alt="preview"
-              />
-              <button
-                onClick={() => onChange(images.filter((i) => i.id !== img.id))}
-                className="absolute -top-1 -right-1 w-4 h-4 bg-red-600 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-              >
-                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path d="M6 18L18 6M6 6l12 12" strokeWidth={3} />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
-export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onClear }) => {
-  const [products, setProducts]       = useState<SavedProduct[]>([]);
-  const [creating, setCreating]       = useState(false);
-  const [newName, setNewName]         = useState('');
-  const [newImages, setNewImages]     = useState<ImageFile[]>([]);
-  const [saving, setSaving]           = useState(false);
+export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onClear, onInferAngle }) => {
+  const [products, setProducts] = useState<SavedProduct[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [draftViews, setDraftViews] = useState<ProductView[]>([]);
+  const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [inferringAngle, setInferringAngle] = useState<ProductAngle | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const activeProduct = useMemo(
+    () => products.find((product) => product.id === activeProductId) || null,
+    [products, activeProductId],
+  );
 
   const load = async () => setProducts(await getAllProducts());
 
   useEffect(() => { load(); }, []);
-
   useEffect(() => {
     if (creating) setTimeout(() => nameInputRef.current?.focus(), 50);
   }, [creating]);
 
+  const resetCreation = () => {
+    setCreating(false);
+    setNewName('');
+    setDraftViews([]);
+    setError(null);
+  };
+
   const handleSave = async () => {
-    if (!newName.trim() || newImages.length === 0) return;
+    if (!newName.trim() || draftViews.length === 0) return;
     setSaving(true);
     try {
-      const p = createSavedProduct(newName, newImages);
-      await saveProduct(p);
+      const product = createSavedProduct(newName, draftViews);
+      await saveProduct(product);
       await load();
-      setCreating(false);
-      setNewName('');
-      setNewImages([]);
-      onSelect(p); // auto-select the newly created product
+      resetCreation();
+      onSelect(product);
     } finally {
       setSaving(false);
     }
@@ -158,157 +70,196 @@ export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onC
     setConfirmDelete(null);
   };
 
+  const savePassportViews = async (product: SavedProduct, views: ProductView[]) => {
+    const updated = withUpdatedPassport(product, createPassport(views));
+    await saveProduct(updated);
+    await load();
+    onSelect(updated);
+    setEditing(false);
+  };
+
+  const setInferredStatus = async (product: SavedProduct, viewId: string, approved: boolean) => {
+    if (!product.passport) return;
+    const views = approved
+      ? product.passport.views.map((view) => view.id === viewId ? { ...view, status: 'approved' as const } : view)
+      : product.passport.views.filter((view) => view.id !== viewId);
+    await savePassportViews(product, views);
+  };
+
+  const inferAngle = async (product: SavedProduct, angle: ProductAngle) => {
+    setInferringAngle(angle);
+    setError(null);
+    try {
+      const updated = await onInferAngle(product, angle);
+      await load();
+      onSelect(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo inferir esta vista.');
+    } finally {
+      setInferringAngle(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-            Mis Productos
-          </span>
-          {products.length > 0 && (
-            <span className="text-[8px] font-black text-slate-700 bg-slate-800 px-2 py-0.5 rounded-full">
-              {products.length}
-            </span>
-          )}
+        <div>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pasaportes de producto</span>
+          <p className="text-[8px] text-slate-600 mt-1">Identidad y ángulos reutilizables</p>
         </div>
         <button
-          onClick={() => { setCreating(true); }}
-          className="flex items-center gap-1.5 text-[9px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest transition-colors"
+          onClick={() => { setCreating(true); setDraftViews([]); }}
+          className="flex items-center gap-1.5 text-[9px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest"
         >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path d="M12 4v16m8-8H4" strokeWidth={3} />
-          </svg>
-          Nuevo
+          + Nuevo
         </button>
       </div>
 
-      {/* Creation modal (inline) */}
       {creating && (
-        <div className="bg-slate-900/80 border border-white/10 rounded-2xl p-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-          <p className="text-[10px] font-black text-white uppercase tracking-widest">Nuevo Producto</p>
-
+        <div className="bg-slate-900/80 border border-blue-500/20 rounded-3xl p-5 space-y-5">
+          <div>
+            <p className="text-[10px] font-black text-white uppercase tracking-widest">Crear pasaporte visual</p>
+            <p className="text-[8px] text-slate-500 mt-1">Primero documentaremos el producto; después crearemos fotografías.</p>
+          </div>
           <input
             ref={nameInputRef}
             value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSave()}
-            placeholder="Nombre del producto..."
-            className="w-full bg-slate-800/50 border border-white/10 rounded-xl px-4 py-3 text-[11px] text-white placeholder-slate-600 outline-none focus:border-blue-500/50 transition-colors"
+            onChange={(event) => setNewName(event.target.value)}
+            placeholder="Nombre o SKU del producto..."
+            className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-[11px] text-white outline-none focus:border-blue-500/50"
           />
-
-          <MiniUploader images={newImages} onChange={setNewImages} />
-
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={() => { setCreating(false); setNewName(''); setNewImages([]); }}
-              className="flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-300 transition-colors rounded-xl border border-white/5 hover:border-white/10"
-            >
-              Cancelar
-            </button>
+          <ProductPassportCapture views={draftViews} onChange={setDraftViews} />
+          <div className="flex gap-2">
+            <button onClick={resetCreation} className="flex-1 py-3 text-[9px] font-black uppercase text-slate-500 border border-white/5 rounded-xl">Cancelar</button>
             <button
               onClick={handleSave}
-              disabled={!newName.trim() || newImages.length === 0 || saving}
-              className="flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-xl transition-all active:scale-95"
+              disabled={!newName.trim() || draftViews.length === 0 || saving}
+              className="flex-1 py-3 text-[9px] font-black uppercase bg-blue-600 disabled:opacity-40 text-white rounded-xl"
             >
-              {saving ? 'Guardando...' : 'Guardar'}
+              {saving ? 'Guardando...' : 'Crear pasaporte'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Product cards */}
       {products.length === 0 && !creating ? (
-        <p className="text-[9px] text-slate-700 uppercase tracking-wide text-center py-4">
-          Sin productos guardados
-        </p>
+        <div className="border border-dashed border-white/10 rounded-2xl py-6 text-center">
+          <p className="text-[9px] text-slate-600 uppercase">Crea tu primer pasaporte</p>
+        </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {products.map((p) => {
-            const isActive = activeProductId === p.id;
+        <div className="space-y-2">
+          {products.map((product) => {
+            const active = product.id === activeProductId;
+            const coverage = getPassportCoverage(product.passport);
             return (
-              <div
-                key={p.id}
-                className={`group flex items-center gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
-                  isActive
-                    ? 'bg-blue-600/15 border-blue-500/40'
-                    : 'bg-slate-900/40 border-white/5 hover:border-white/10'
-                }`}
-                onClick={() => onSelect(p)}
+              <button
+                key={product.id}
+                onClick={() => { onSelect(product); setEditing(false); }}
+                className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left transition-all ${active ? 'bg-blue-600/15 border-blue-500/40' : 'bg-slate-900/40 border-white/5 hover:border-white/10'}`}
               >
-                {/* Thumbnail */}
-                <div className="w-11 h-11 rounded-xl overflow-hidden border border-white/10 flex-shrink-0 bg-slate-800">
-                  {p.thumbnail ? (
-                    <img src={p.thumbnail} alt={p.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-700">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14" strokeWidth={1.5} />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <p className={`text-[10px] font-black uppercase tracking-tight truncate ${isActive ? 'text-blue-300' : 'text-slate-300'}`}>
-                    {p.name}
-                  </p>
-                  <p className="text-[8px] text-slate-600 mt-0.5">
-                    {p.images.length} ángulo{p.images.length !== 1 ? 's' : ''}
-                  </p>
-                </div>
-
-                {/* Active badge / delete */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {isActive && (
-                    <span className="text-[7px] font-black text-blue-400 uppercase tracking-widest bg-blue-600/20 px-2 py-1 rounded-full">
-                      Activo
-                    </span>
-                  )}
-
-                  {/* Delete */}
-                  {confirmDelete === p.id ? (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                        className="text-[8px] font-black text-red-400 hover:text-red-300 uppercase tracking-wider px-2 py-1 bg-red-600/10 border border-red-500/20 rounded-lg transition-colors"
-                      >
-                        Borrar
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setConfirmDelete(null); }}
-                        className="text-[8px] font-black text-slate-500 hover:text-slate-300 uppercase tracking-wider px-2 py-1 bg-slate-800 border border-white/5 rounded-lg transition-colors"
-                      >
-                        No
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setConfirmDelete(p.id); }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-slate-600 hover:text-red-400 rounded-lg"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeWidth={2} />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              </div>
+                <img src={product.thumbnail} alt={product.name} className="w-12 h-12 object-cover rounded-xl bg-slate-800" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[10px] font-black text-slate-200 uppercase truncate">{product.name}</span>
+                  <span className="block text-[8px] text-slate-600 mt-1">{product.passport?.views.length || product.images.length} vistas · {coverage}% cobertura</span>
+                </span>
+                {active && <span className="text-[7px] font-black text-blue-400 uppercase">Activo</span>}
+              </button>
             );
           })}
         </div>
       )}
 
-      {/* Divider shown when a product is active */}
-      {activeProductId && (
-        <button
-          onClick={onClear}
-          className="w-full text-[8px] font-black text-slate-700 hover:text-slate-500 uppercase tracking-widest transition-colors py-1"
-        >
-          ↑ subir manualmente en cambio
-        </button>
+      {activeProduct && activeProduct.passport && (
+        <div className="bg-[#010513] border border-white/10 rounded-3xl p-4 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[9px] font-black text-white uppercase">Pasaporte activo</p>
+              <p className="text-[8px] text-slate-600 mt-1">Solo las vistas verificadas o aprobadas entran al generador.</p>
+            </div>
+            <button onClick={() => setEditing(!editing)} className="text-[8px] font-black text-blue-400 uppercase">
+              {editing ? 'Cerrar' : 'Añadir fotos'}
+            </button>
+          </div>
+
+          {editing ? (
+            <PassportEditor product={activeProduct} onSave={savePassportViews} />
+          ) : (
+            <div className="grid grid-cols-4 gap-2">
+              {PRODUCT_ANGLES.map((angle) => {
+                const view = activeProduct.passport?.views.find((item) => item.angle === angle.id);
+                const canInfer = GENERATABLE_PRODUCT_ANGLES.some((item) => item.id === angle.id);
+                return (
+                  <div key={angle.id} className="aspect-square rounded-xl overflow-hidden border border-white/10 bg-slate-950 relative">
+                    {view ? (
+                      <>
+                        <img src={view.image.preview} alt={angle.label} className="w-full h-full object-cover" />
+                        <div className="absolute inset-x-0 bottom-0 bg-black/80 p-1.5">
+                          <p className="text-[7px] font-black text-white uppercase truncate">{angle.shortLabel}</p>
+                          <p className={`text-[6px] font-black uppercase ${view.status === 'inferred' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            {view.status === 'verified' ? 'Verificada' : view.status === 'approved' ? 'Aprobada' : 'Inferida'}
+                          </p>
+                        </div>
+                        {view.status === 'inferred' && (
+                          <div className="absolute inset-x-1 top-1 flex gap-1">
+                            <button onClick={() => setInferredStatus(activeProduct, view.id, true)} className="flex-1 bg-emerald-600 text-white rounded-md text-[7px] py-1" title="Aprobar">✓</button>
+                            <button onClick={() => setInferredStatus(activeProduct, view.id, false)} className="flex-1 bg-red-600 text-white rounded-md text-[7px] py-1" title="Descartar">×</button>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="w-full h-full p-1 flex flex-col items-center justify-center text-center">
+                        <p className="text-[7px] font-black text-slate-600 uppercase">{angle.shortLabel}</p>
+                        {canInfer && (
+                          <button
+                            onClick={() => inferAngle(activeProduct, angle.id)}
+                            disabled={!!inferringAngle || activeProduct.images.length === 0}
+                            className="mt-1 text-[6px] font-black text-blue-400 uppercase disabled:opacity-30"
+                          >
+                            {inferringAngle === angle.id ? 'Creando...' : 'Inferir IA'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {error && <p className="text-[8px] text-red-400">{error}</p>}
+          <div className="flex gap-2 pt-1">
+            {confirmDelete === activeProduct.id ? (
+              <>
+                <button onClick={() => handleDelete(activeProduct.id)} className="flex-1 py-2 text-[8px] font-black uppercase text-red-400 bg-red-500/10 rounded-lg">Confirmar borrado</button>
+                <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2 text-[8px] font-black uppercase text-slate-500 bg-slate-900 rounded-lg">Cancelar</button>
+              </>
+            ) : (
+              <button onClick={() => setConfirmDelete(activeProduct.id)} className="text-[8px] font-black text-slate-700 hover:text-red-400 uppercase">Eliminar pasaporte</button>
+            )}
+          </div>
+        </div>
       )}
+    </div>
+  );
+};
+
+const PassportEditor: React.FC<{
+  product: SavedProduct;
+  onSave: (product: SavedProduct, views: ProductView[]) => Promise<void>;
+}> = ({ product, onSave }) => {
+  const [views, setViews] = useState(product.passport?.views || []);
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <div className="space-y-3">
+      <ProductPassportCapture views={views} onChange={setViews} />
+      <button
+        onClick={async () => { setSaving(true); await onSave(product, views); setSaving(false); }}
+        disabled={saving || views.length === 0}
+        className="w-full py-3 bg-blue-600 disabled:opacity-40 rounded-xl text-[8px] font-black text-white uppercase"
+      >
+        {saving ? 'Guardando...' : 'Guardar cambios'}
+      </button>
     </div>
   );
 };

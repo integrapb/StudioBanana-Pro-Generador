@@ -50,6 +50,48 @@ export class GeminiService {
     return new GoogleGenAI({ apiKey: this.getApiKey() });
   }
 
+  async generateProductAngle(productImages: ImageFile[], angleLabel: string): Promise<string> {
+    if (productImages.length === 0) {
+      throw new Error('Se necesita al menos una vista verificada para inferir un ángulo.');
+    }
+
+    const ai = this.getClient();
+    const parts: any[] = [
+      ...productImages.map((image) => ({
+        inlineData: { data: image.data, mimeType: image.mimeType },
+      })),
+      {
+        text: `Create a neutral product identity reference photograph showing the exact same product from this angle: ${angleLabel}.
+
+All input images are verified photographs of the same physical product. Use every input together as the only source of truth. Preserve exact geometry, proportions, materials, colors, labels, logos, typography, seams, hardware and imperfections. Do not redesign, simplify, beautify or add details.
+
+Output requirements:
+- Single product centered on a clean neutral light-gray studio background.
+- Product fully visible with no props, hands or people.
+- Even catalog lighting with minimal soft shadow.
+- Square composition.
+- If a surface, label or detail is not visible in the verified inputs, keep it plain and conservative rather than inventing branding or text.
+
+This is an INFERRED passport view for human review, not a creative campaign image.`,
+      },
+    ];
+
+    const response = await ai.models.generateContent({
+      model: this.modelName,
+      contents: { parts },
+      config: {
+        imageConfig: { aspectRatio: '1:1' },
+      },
+    });
+
+    const imagePart = response.candidates?.[0]?.content?.parts.find((part) => part.inlineData);
+    if (!imagePart?.inlineData?.data) {
+      throw new Error('La IA no devolvió una vista de producto válida.');
+    }
+
+    return `data:${imagePart.inlineData.mimeType || 'image/png'};base64,${imagePart.inlineData.data}`;
+  }
+
   async analyzeReferenceImage(productImages: ImageFile[], styleImage: ImageFile): Promise<AnalyzedConcept> {
     const ai = this.getClient();
 
