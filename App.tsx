@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ImageFile, AppStatus, GenerationResult } from './types';
 import { GeminiService, AnalyzedConcept, PromptVariant } from './services/geminiService';
+import { SavedProduct } from './services/productStore';
+import { ProductLibrary } from './components/ProductLibrary';
 import { ImageUploader } from './components/ImageUploader';
 import { ImageInspector } from './components/ImageInspector';
 import { ImageMasker } from './components/ImageMasker';
@@ -210,6 +212,7 @@ const App: React.FC = () => {
   
   // Generator State
   const [productImages, setProductImages] = useState<ImageFile[]>([]);
+  const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [referenceImage, setReferenceImage] = useState<ImageFile[]>([]);
   const [analyzedData, setAnalyzedData] = useState<AnalyzedConcept | null>(null);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
@@ -252,6 +255,25 @@ const App: React.FC = () => {
   }, []);
 
   const getService = () => (geminiServiceRef.current || (geminiServiceRef.current = new GeminiService()));
+
+  // ── Product Library handlers ─────────────────────────────────────────────
+  const handleSelectProduct = (product: SavedProduct) => {
+    // Fully replace product images — no mixing with previous product
+    setProductImages(product.images);
+    setActiveProductId(product.id);
+    // Reset any existing analysis since it was based on a different product
+    setAnalyzedData(null);
+    setReferenceImage([]);
+    setPrompt('');
+  };
+
+  const handleClearProduct = () => {
+    setProductImages([]);
+    setActiveProductId(null);
+    setAnalyzedData(null);
+    setReferenceImage([]);
+    setPrompt('');
+  };
 
   const handleComposerStyleUpload = async (files: ImageFile[]) => {
     if (files.length === 0) return;
@@ -492,12 +514,32 @@ const App: React.FC = () => {
           <div className="flex-1 overflow-y-auto p-10 space-y-12 custom-scrollbar pb-40">
             {activeTool === 'generator' ? (
               <>
+                {/* ── Product Library ─────────────────────────────── */}
+                <ProductLibrary
+                  activeProductId={activeProductId}
+                  onSelect={handleSelectProduct}
+                  onClear={handleClearProduct}
+                />
+
+                {/* Divider */}
+                <div className="border-t border-white/5 -mx-10 px-10 pt-2">
+                  <p className="text-[8px] font-black text-slate-700 uppercase tracking-widest mb-6">
+                    {activeProductId ? '▸ Cargado desde librería' : '▸ O sube manualmente'}
+                  </p>
+                </div>
+
                 <ImageUploader 
                   label="1. DNA del Producto (Ángulos)" 
                   maxFiles={5} 
                   images={productImages} 
-                  onUpload={f => setProductImages([...productImages, ...f])} 
-                  onRemove={id => setProductImages(productImages.filter(i => i.id !== id))} 
+                  onUpload={f => {
+                    setProductImages([...productImages, ...f]);
+                    setActiveProductId(null); // manual upload = detach from library product
+                  }} 
+                  onRemove={id => {
+                    setProductImages(productImages.filter(i => i.id !== id));
+                    if (productImages.length <= 1) setActiveProductId(null);
+                  }} 
                   description="Sube varios ángulos para fidelidad total." 
                 />
                 
