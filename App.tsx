@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImageFile, AppStatus, GenerationResult, ProductAngle } from './types';
+import { ImageFile, AppStatus, GenerationResult } from './types';
 import { GeminiService, AnalyzedConcept, PromptVariant } from './services/geminiService';
-import { SavedProduct, saveProduct, withUpdatedPassport } from './services/productStore';
-import { createInferredView, createPassport, dataUrlToImageFile, PRODUCT_ANGLES } from './services/productPassport';
+import { SavedProduct } from './services/productStore';
 import { ProductLibrary } from './components/ProductLibrary';
 import { ImageUploader } from './components/ImageUploader';
 import { ImageInspector } from './components/ImageInspector';
@@ -276,31 +275,6 @@ const App: React.FC = () => {
     setPrompt('');
   };
 
-  const handleInferProductAngle = async (product: SavedProduct, angle: ProductAngle): Promise<SavedProduct> => {
-    if (!product.passport) throw new Error('Este producto todavía no tiene un pasaporte visual.');
-
-    // Never infer from inferred/AI-created views. Verified user photos remain the sole source of truth.
-    const verifiedImages = product.passport.views
-      .filter((view) => view.status === 'verified')
-      .map((view) => view.image);
-    if (verifiedImages.length === 0) {
-      throw new Error('Añade al menos una fotografía real verificada antes de inferir vistas.');
-    }
-
-    const angleDefinition = PRODUCT_ANGLES.find((item) => item.id === angle);
-    if (!angleDefinition) throw new Error('Ángulo de producto no reconocido.');
-
-    const dataUrl = await getService().generateProductAngle(verifiedImages, angleDefinition.label);
-    const inferredView = createInferredView(angle, dataUrlToImageFile(dataUrl));
-    const views = [
-      ...product.passport.views.filter((view) => view.angle !== angle),
-      inferredView,
-    ];
-    const updated = withUpdatedPassport(product, createPassport(views));
-    await saveProduct(updated);
-    return updated;
-  };
-
   const handleComposerStyleUpload = async (files: ImageFile[]) => {
     if (files.length === 0) return;
     if (composerProduct.length === 0) {
@@ -509,13 +483,13 @@ const App: React.FC = () => {
   return (
     <div className="h-screen flex bg-[#010413] text-slate-200 overflow-hidden font-sans selection:bg-blue-500/30">
       {/* Sidebar de Control */}
-      <aside className={`bg-[#020817] border-r border-white/5 transition-all duration-700 relative flex-shrink-0 flex flex-col z-30 shadow-[40px_0_100px_rgba(0,0,0,0.8)] ${sidebarOpen ? 'w-full md:w-[480px]' : 'w-0 md:w-24'}`}>
-        <button aria-label={sidebarOpen ? 'Cerrar panel de configuración' : 'Abrir panel de configuración'} onClick={() => setSidebarOpen(!sidebarOpen)} className={`fixed md:absolute top-14 z-50 p-2.5 bg-blue-600 rounded-full text-white shadow-2xl hover:scale-110 transition-all active:scale-90 border border-white/20 ${sidebarOpen ? 'right-3 md:-right-5' : 'left-3 md:left-auto md:-right-5'}`}>
+      <aside className={`bg-[#020817] border-r border-white/5 transition-all duration-700 relative flex flex-col z-30 shadow-[40px_0_100px_rgba(0,0,0,0.8)] ${sidebarOpen ? 'w-[480px]' : 'w-24'}`}>
+        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="absolute -right-5 top-14 z-50 p-2.5 bg-blue-600 rounded-full text-white shadow-2xl hover:scale-110 transition-transform active:scale-90 border border-white/20">
           <svg className={`w-5 h-5 transition-transform ${sidebarOpen ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7" strokeWidth={3}/></svg>
         </button>
 
         <div className={`flex flex-col h-full ${sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-          <div className="p-6 md:p-10 border-b border-white/5">
+          <div className="p-10 border-b border-white/5">
             <div className="flex items-center gap-5 mb-10">
               <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center italic font-black text-white shadow-xl rotate-3">SB</div>
               <div>
@@ -537,7 +511,7 @@ const App: React.FC = () => {
             </nav>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-12 custom-scrollbar pb-40">
+          <div className="flex-1 overflow-y-auto p-10 space-y-12 custom-scrollbar pb-40">
             {activeTool === 'generator' ? (
               <>
                 {/* ── Product Library ─────────────────────────────── */}
@@ -545,24 +519,29 @@ const App: React.FC = () => {
                   activeProductId={activeProductId}
                   onSelect={handleSelectProduct}
                   onClear={handleClearProduct}
-                  onInferAngle={handleInferProductAngle}
                 />
 
-                <div className={`rounded-3xl border p-5 ${activeProductId ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-amber-500/5 border-amber-500/20'}`}>
-                  <div className="flex items-center gap-3">
-                    <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${activeProductId ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>
-                      {activeProductId ? '✓' : '1'}
-                    </span>
-                    <div>
-                      <p className="text-[10px] font-black text-white uppercase tracking-wider">
-                        {activeProductId ? 'Identidad del producto cargada' : 'Crea o selecciona un pasaporte'}
-                      </p>
-                      <p className="text-[8px] text-slate-500 mt-1">
-                        {activeProductId ? `${productImages.length} vistas autorizadas para producción` : 'Documenta primero los ángulos del producto antes de crear fotografías.'}
-                      </p>
-                    </div>
-                  </div>
+                {/* Divider */}
+                <div className="border-t border-white/5 -mx-10 px-10 pt-2">
+                  <p className="text-[8px] font-black text-slate-700 uppercase tracking-widest mb-6">
+                    {activeProductId ? '▸ Cargado desde librería' : '▸ O sube manualmente'}
+                  </p>
                 </div>
+
+                <ImageUploader 
+                  label="1. DNA del Producto (Ángulos)" 
+                  maxFiles={5} 
+                  images={productImages} 
+                  onUpload={f => {
+                    setProductImages([...productImages, ...f]);
+                    setActiveProductId(null); // manual upload = detach from library product
+                  }} 
+                  onRemove={id => {
+                    setProductImages(productImages.filter(i => i.id !== id));
+                    if (productImages.length <= 1) setActiveProductId(null);
+                  }} 
+                  description="Sube varios ángulos para fidelidad total." 
+                />
                 
                 <div className="relative">
                   <ImageUploader 
@@ -747,13 +726,13 @@ const App: React.FC = () => {
 
       {/* Área Principal Dinámica */}
       <main className="flex-1 flex flex-col min-w-0 relative bg-[#00020a]">
-        <header className="min-h-24 border-b border-white/5 bg-[#020817]/80 backdrop-blur-3xl flex items-center justify-between px-6 md:px-16 py-5 z-20">
-          <div className="flex items-center gap-3 md:gap-8 min-w-0">
-            <h1 className="text-lg md:text-2xl font-black italic tracking-tighter text-white uppercase leading-none">
+        <header className="h-24 border-b border-white/5 bg-[#020817]/80 backdrop-blur-3xl flex items-center justify-between px-16 z-20">
+          <div className="flex items-center gap-8">
+            <h1 className="text-2xl font-black italic tracking-tighter text-white uppercase leading-none">
               {activeTool === 'generator' ? 'Darkroom Gallery' : activeTool === 'composer' ? 'Composition Deck' : 'Reverse Engineer Lab'}
             </h1>
-            <div className="hidden sm:block h-6 w-[1px] bg-white/10"></div>
-            <div className="hidden sm:flex items-center gap-3">
+            <div className="h-6 w-[1px] bg-white/10"></div>
+            <div className="flex items-center gap-3">
               <span className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]"></span>
               <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Nano Banana Pro 4K Active</span>
             </div>
@@ -764,7 +743,7 @@ const App: React.FC = () => {
               <button onClick={() => {
                 localStorage.removeItem('studiobanana_api_key');
                 setHasApiKey(false);
-              }} className="text-[9px] md:text-[10px] font-black text-slate-500 hover:text-yellow-500 transition-all uppercase tracking-widest border border-white/10 px-3 md:px-8 py-3 rounded-full hover:bg-yellow-500/10">Cambiar API Key</button>
+              }} className="text-[10px] font-black text-slate-500 hover:text-yellow-500 transition-all uppercase tracking-widest border border-white/10 px-8 py-3 rounded-full hover:bg-yellow-500/10">Cambiar API Key</button>
             )}
             {activeTool === 'generator' && results.length > 0 && (
               <button onClick={() => setResults([])} className="text-[10px] font-black text-slate-500 hover:text-red-500 transition-all uppercase tracking-widest border border-white/10 px-8 py-3 rounded-full hover:bg-red-500/10">Limpiar Sesión</button>
@@ -781,7 +760,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6 md:p-16 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-16 custom-scrollbar">
           {activeTool === 'generator' ? (
             <div className="max-w-7xl mx-auto">
               {results.length === 0 ? (
