@@ -7,8 +7,8 @@ const STORE_NAME = 'products';
 export interface SavedProduct {
   id: string;
   name: string;
-  thumbnail: string;   // base64 of first image – for display only
-  images: ImageFile[]; // all product angles
+  thumbnail: string;   // full data URL of first image – for display
+  images: ImageFile[]; // all product angles (with correct preview field)
   createdAt: number;
 }
 
@@ -33,7 +33,7 @@ function openDB(): Promise<IDBDatabase> {
 export async function saveProduct(product: SavedProduct): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx   = db.transaction(STORE_NAME, 'readwrite');
+    const tx    = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     const req   = store.put(product);
     req.onsuccess = () => resolve();
@@ -45,8 +45,8 @@ export async function getAllProducts(): Promise<SavedProduct[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(STORE_NAME, 'readonly');
-    const store  = tx.objectStore(STORE_NAME);
-    const req    = store.getAll();
+    const store = tx.objectStore(STORE_NAME);
+    const req   = store.getAll();
     req.onsuccess = () =>
       resolve((req.result as SavedProduct[]).sort((a, b) => b.createdAt - a.createdAt));
     req.onerror   = () => reject(req.error);
@@ -56,7 +56,7 @@ export async function getAllProducts(): Promise<SavedProduct[]> {
 export async function deleteProduct(id: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx   = db.transaction(STORE_NAME, 'readwrite');
+    const tx    = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     const req   = store.delete(id);
     req.onsuccess = () => resolve();
@@ -64,13 +64,16 @@ export async function deleteProduct(id: string): Promise<void> {
   });
 }
 
-// ── Helper: build a SavedProduct from raw image files ────────────────────────
+// ── Helper: build a SavedProduct from ImageFile[] ────────────────────────────
+// ImageFile has: { id, data (base64), mimeType, preview (full data URL) }
+// We use preview as thumbnail since it's already a valid displayable data URL.
 
 export function createSavedProduct(name: string, images: ImageFile[]): SavedProduct {
   return {
     id:        crypto.randomUUID(),
     name:      name.trim(),
-    thumbnail: images[0]?.data ? `data:${images[0].mimeType};base64,${images[0].data}` : '',
+    // preview is the full "data:image/...;base64,..." URL — safe to store and display
+    thumbnail: images[0]?.preview ?? '',
     images,
     createdAt: Date.now(),
   };

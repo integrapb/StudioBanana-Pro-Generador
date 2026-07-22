@@ -27,19 +27,39 @@ function MiniUploader({
   const readFile = (file: File): Promise<ImageFile> =>
     new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        const base64  = dataUrl.split(',')[1];
-        resolve({
-          id:       crypto.randomUUID(),
-          name:     file.name,
-          data:     base64,
-          mimeType: file.type as ImageFile['mimeType'],
-          url:      dataUrl,
-        });
+      reader.onloadend = () => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let w = img.width;
+          let h = img.height;
+          const maxDim = 1024;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+            else       { w = Math.round((w * maxDim) / h); h = maxDim; }
+          }
+          canvas.width  = w;
+          canvas.height = h;
+          canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
+
+          let targetType = file.type;
+          if (targetType !== 'image/jpeg' && targetType !== 'image/webp') targetType = 'image/png';
+
+          const dataUrl = canvas.toDataURL(targetType);
+          const base64  = dataUrl.split(',')[1];
+
+          resolve({
+            id:       crypto.randomUUID(),
+            data:     base64,
+            mimeType: targetType,
+            preview:  dataUrl,           // <-- this is what ImageUploader uses for display
+          });
+        };
+        img.src = reader.result as string;
       };
       reader.readAsDataURL(file);
     });
+
 
   const handleFiles = async (files: FileList) => {
     const slots = 5 - images.length;
@@ -77,9 +97,9 @@ function MiniUploader({
           {images.map((img) => (
             <div key={img.id} className="relative group">
               <img
-                src={`data:${img.mimeType};base64,${img.data}`}
+                src={img.preview}
                 className="w-14 h-14 object-cover rounded-xl border border-white/10"
-                alt={img.name}
+                alt="preview"
               />
               <button
                 onClick={() => onChange(images.filter((i) => i.id !== img.id))}
