@@ -26,6 +26,9 @@ export interface ProductPassport {
   colors: string;
   protectedDetails: string;
   notes: string;
+  detectedDetails?: string;
+  unknownDetails?: string;
+  confidence?: number;
 }
 
 export interface PreciseProductData {

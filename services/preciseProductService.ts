@@ -1,4 +1,4 @@
-import type { ImageFile, PreciseProductData, PreciseProductImage, ProductAngle } from '../types';
+import type { ImageFile, PreciseProductData, PreciseProductImage, ProductAngle, ProductPassport } from '../types';
 
 const ANGLE_NAMES: Record<ProductAngle, string> = {
   front: 'front view',
@@ -51,4 +51,19 @@ ABSOLUTE PRODUCT RULES:
 - Requested camera view: ${targetAngle}.
 
 SCENE DIRECTION: ${data.prompt || 'Create a premium, photorealistic commercial product photograph with natural contact shadows and physically believable light.'}`;
+}
+
+export type AiProductProfile = Pick<ProductPassport, 'name' | 'materials' | 'colors' | 'protectedDetails' | 'notes' | 'detectedDetails' | 'unknownDetails' | 'confidence'>;
+
+export async function analyzePreciseProduct(images: PreciseProductImage[]): Promise<AiProductProfile> {
+  const response = await fetch('/api/gemini/analyze-product', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ references: images.slice(0, 3).map((image) => image.preview) }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.profile) {
+    throw new Error(result.error || 'No fue posible analizar el producto.');
+  }
+  return result.profile as AiProductProfile;
 }
