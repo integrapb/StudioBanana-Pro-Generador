@@ -11,6 +11,17 @@ export interface GenerationResult {
   prompt: string;
   timestamp: number;
   engine?: string;
+  integrationAudit?: IntegrationAudit;
+}
+
+export interface IntegrationAudit {
+  passed: boolean;
+  score: number;
+  productFidelity: number;
+  lightingMatch: number;
+  physicalIntegration: number;
+  issues: string[];
+  correctionPrompt: string;
 }
 
 export type ProductAngle = 'front' | 'right' | 'back' | 'left' | 'three-quarter' | 'detail';
@@ -56,6 +67,8 @@ export interface ProductProfile {
   analyzedAt?: number;
   error?: string;
   imageViews?: ProductImageView[];
+  intrinsicProperties?: string;
+  sourceLightingToIgnore?: string;
 }
 
 export interface ProductImageView {
@@ -90,6 +103,15 @@ export interface SceneBlueprint {
   desiredProductView?: ProductImageView['view'];
   copyElements?: string;
   ignoreElements?: string;
+  keyLight?: string;
+  fillLight?: string;
+  rimLight?: string;
+  ambientBounce?: string;
+  exposurePlan?: string;
+  whiteBalance?: string;
+  placementPlan?: string;
+  contactPlan?: string;
+  occlusionPlan?: string;
 }
 
 export interface PreciseProductData {
