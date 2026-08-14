@@ -17,6 +17,11 @@ export const OPENROUTER_IMAGE_MODELS = [
     label: 'Grok Imagine 2',
     description: 'Variaciones creativas con hasta 3 referencias',
   },
+  {
+    id: 'sourceful/riverflow-v2.5-pro',
+    label: 'Riverflow 2.5 Pro',
+    description: 'Máxima resolución para renders comerciales',
+  },
 ] as const;
 
 export type OpenRouterImageModel = (typeof OPENROUTER_IMAGE_MODELS)[number]['id'];

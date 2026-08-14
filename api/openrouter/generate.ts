@@ -2,6 +2,7 @@ const MODEL_CONFIG = {
   'bytedance-seed/seedream-5-0-pro': { maxReferences: 14, resolution: '2K' },
   'openai/gpt-image-2': { maxReferences: 16, quality: 'high', background: 'opaque' },
   'x-ai/grok-imagine-image-2.0': { maxReferences: 3, resolution: '2K', quality: 'medium' },
+  'sourceful/riverflow-v2.5-pro': { maxReferences: 10, resolution: '4K', background: 'opaque' },
 } as const;
 
 type ApiRequest = {
