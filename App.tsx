@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ImageFile, AppStatus, GenerationResult } from './types';
 import { GeminiService, AnalyzedConcept, PromptVariant } from './services/geminiService';
 import { OpenRouterService, OPENROUTER_IMAGE_MODELS, OpenRouterImageModel } from './services/openRouterService';
+import { GeminiImageService, GEMINI_IMAGE_MODEL } from './services/geminiImageService';
 import { SavedProduct } from './services/productStore';
 import { ProductLibrary } from './components/ProductLibrary';
 import { ImageUploader } from './components/ImageUploader';
@@ -26,6 +27,9 @@ const ASPECT_RATIOS = [
   { id: '16:9', label: '16:9', desc: 'Widescreen' },
   { id: '9:16', label: '9:16', desc: 'Vertical' },
 ];
+
+const IMAGE_MODELS = [GEMINI_IMAGE_MODEL, ...OPENROUTER_IMAGE_MODELS] as const;
+type ImageModelId = (typeof IMAGE_MODELS)[number]['id'];
 
 const ResultCard: React.FC<{
   res: GenerationResult;
@@ -221,7 +225,7 @@ const App: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [selectedShot, setSelectedShot] = useState<string | null>(null);
   const [selectedRatio, setSelectedRatio] = useState<string>('1:1');
-  const [selectedEngine, setSelectedEngine] = useState<OpenRouterImageModel>('openai/gpt-image-2');
+  const [selectedEngine, setSelectedEngine] = useState<ImageModelId>(GEMINI_IMAGE_MODEL.id);
   const [variationCount, setVariationCount] = useState(1);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -236,6 +240,7 @@ const App: React.FC = () => {
   const [inputKey, setInputKey] = useState('');
 
   const geminiServiceRef = useRef<GeminiService | null>(null);
+  const geminiImageServiceRef = useRef<GeminiImageService | null>(null);
   const openRouterServiceRef = useRef<OpenRouterService | null>(null);
 
   useEffect(() => {
@@ -256,22 +261,24 @@ const App: React.FC = () => {
         }
       }
       setHasGeminiKey(geminiConfigured);
-      let openRouterConfigured = false;
-      if (!geminiConfigured) {
-        try {
-          const response = await fetch('/api/openrouter/status');
-          const data = await response.json();
-          openRouterConfigured = Boolean(data.configured);
-        } catch {
-          // In local Vite, Vercel API functions are not available. Gemini remains usable there.
-        }
+      let serverConfigured = false;
+      try {
+        const responses = await Promise.all([
+          fetch('/api/openrouter/status'),
+          fetch('/api/gemini/status'),
+        ]);
+        const statuses = await Promise.all(responses.map(async (response) => response.ok ? response.json() : null));
+        serverConfigured = statuses.some((status) => Boolean(status?.configured));
+      } catch {
+        // In local Vite, Vercel API functions are not available. A local Gemini key remains usable.
       }
-      setHasApiKey(geminiConfigured || openRouterConfigured);
+      setHasApiKey(geminiConfigured || serverConfigured);
     };
     checkKey();
   }, []);
 
   const getService = () => (geminiServiceRef.current || (geminiServiceRef.current = new GeminiService()));
+  const getGeminiImageService = () => (geminiImageServiceRef.current || (geminiImageServiceRef.current = new GeminiImageService()));
   const getOpenRouterService = () => (openRouterServiceRef.current || (openRouterServiceRef.current = new OpenRouterService()));
 
   // ── Product Library handlers ─────────────────────────────────────────────
@@ -407,8 +414,10 @@ const App: React.FC = () => {
     try {
       for (let i = 0; i < variationCount; i++) {
         setProgress(p => ({ ...p, current: p.current + 1 }));
-        const url = await getOpenRouterService().generateProductImage(selectedEngine, productImages, referenceImage[0] || null, prompt, i, analyzedData || undefined, undefined, selectedRatio);
-        const engine = OPENROUTER_IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'OpenRouter';
+        const url = selectedEngine === GEMINI_IMAGE_MODEL.id
+          ? await getGeminiImageService().generateProductImage(productImages, referenceImage[0] || null, prompt, i, analyzedData || undefined, undefined, selectedRatio)
+          : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productImages, referenceImage[0] || null, prompt, i, analyzedData || undefined, undefined, selectedRatio);
+        const engine = IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'IA';
         setResults(prev => [{ imageUrl: url, prompt, timestamp: Date.now() + i, engine }, ...prev]);
         if (i < variationCount - 1) {
           await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
@@ -418,8 +427,10 @@ const App: React.FC = () => {
       if (selectedShot) {
         setProgress(p => ({ ...p, current: p.current + 1 }));
         const shotInfo = SHOT_TYPES.find(s => s.id === selectedShot);
-        const url = await getOpenRouterService().generateProductImage(selectedEngine, productImages, referenceImage[0] || null, prompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio);
-        const engine = OPENROUTER_IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'OpenRouter';
+        const url = selectedEngine === GEMINI_IMAGE_MODEL.id
+          ? await getGeminiImageService().generateProductImage(productImages, referenceImage[0] || null, prompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio)
+          : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productImages, referenceImage[0] || null, prompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio);
+        const engine = IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'IA';
         setResults(prev => [{ imageUrl: url, prompt: `Especial: ${shotInfo?.label}`, timestamp: Date.now() + 99, engine }, ...prev]);
       }
 
@@ -602,7 +613,7 @@ const App: React.FC = () => {
                     <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Elige el resultado</span>
                   </div>
                   <div className="grid grid-cols-1 gap-2">
-                    {OPENROUTER_IMAGE_MODELS.map(model => (
+                    {IMAGE_MODELS.map(model => (
                       <button
                         key={model.id}
                         onClick={() => setSelectedEngine(model.id)}

@@ -26,7 +26,7 @@ export const OPENROUTER_IMAGE_MODELS = [
 
 export type OpenRouterImageModel = (typeof OPENROUTER_IMAGE_MODELS)[number]['id'];
 
-function buildProductPrompt(
+export function buildProductPrompt(
   productImages: ImageFile[],
   referenceImage: ImageFile | null,
   userPrompt: string,
