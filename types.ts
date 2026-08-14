@@ -29,6 +29,14 @@ export interface ProductPassport {
   detectedDetails?: string;
   unknownDetails?: string;
   confidence?: number;
+  category?: string;
+  audit?: ProductAuditEntry[];
+}
+
+export interface ProductAuditEntry {
+  label: string;
+  status: 'visible' | 'estimated' | 'not_visible';
+  observation: string;
 }
 
 export interface PreciseProductData {

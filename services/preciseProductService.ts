@@ -53,7 +53,7 @@ ABSOLUTE PRODUCT RULES:
 SCENE DIRECTION: ${data.prompt || 'Create a premium, photorealistic commercial product photograph with natural contact shadows and physically believable light.'}`;
 }
 
-export type AiProductProfile = Pick<ProductPassport, 'name' | 'materials' | 'colors' | 'protectedDetails' | 'notes' | 'detectedDetails' | 'unknownDetails' | 'confidence'>;
+export type AiProductProfile = Pick<ProductPassport, 'name' | 'materials' | 'colors' | 'protectedDetails' | 'notes' | 'detectedDetails' | 'unknownDetails' | 'confidence' | 'category' | 'audit'>;
 
 export async function analyzePreciseProduct(images: PreciseProductImage[]): Promise<AiProductProfile> {
   const response = await fetch('/api/gemini/analyze-product', {

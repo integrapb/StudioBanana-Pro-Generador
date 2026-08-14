@@ -102,8 +102,16 @@ export const PreciseProductStudio: React.FC<Props> = ({ data, onChange, models, 
     {data.passport.name && <div className="p-5 rounded-3xl border border-emerald-500/20 bg-emerald-500/5 space-y-3">
       <div className="flex items-center justify-between"><p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Perfil creado por IA</p><span className="text-[9px] font-black text-emerald-300">Confianza {data.passport.confidence ?? 0}%</span></div>
       <p className="text-sm font-black text-white">{data.passport.name}</p>
+      {data.passport.category && <span className="inline-flex px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[8px] font-black uppercase tracking-widest text-emerald-300">{data.passport.category}</span>}
       <p className="text-[10px] leading-relaxed text-slate-400">{data.passport.detectedDetails || 'La IA creó un perfil a partir de las fotografías.'}</p>
       {data.passport.unknownDetails && <p className="text-[10px] leading-relaxed text-amber-300/80">Por confirmar: {data.passport.unknownDetails}</p>}
+      {(data.passport.audit?.length || 0) > 0 && <div className="pt-2 space-y-2 border-t border-emerald-500/10">
+        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Auditoría visual</p>
+        {data.passport.audit?.map((item, index) => <div key={`${item.label}-${index}`} className="flex gap-2 text-[9px] leading-relaxed">
+          <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${item.status === 'visible' ? 'bg-emerald-400' : item.status === 'estimated' ? 'bg-amber-400' : 'bg-slate-600'}`} />
+          <p><span className="font-black text-slate-300">{item.label}: </span><span className="text-slate-500">{item.observation}</span></p>
+        </div>)}
+      </div>}
       <button onClick={() => setShowRefinement(!showRefinement)} className="text-[9px] font-black uppercase text-emerald-300 hover:text-white">{showRefinement ? 'Ocultar edición' : 'Refinar perfil manualmente'}</button>
     </div>}
 

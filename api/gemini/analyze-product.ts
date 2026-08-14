@@ -18,6 +18,21 @@ function parseJson(text: string) {
   return JSON.parse(cleaned);
 }
 
+function sanitizeAudit(audit: unknown) {
+  if (!Array.isArray(audit)) return [];
+  return audit.slice(0, 12).map((item) => {
+    const record = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+    const status = record.status === 'visible' || record.status === 'estimated' || record.status === 'not_visible'
+      ? record.status
+      : 'not_visible';
+    return {
+      label: String(record.label || 'Observación'),
+      status,
+      observation: String(record.observation || 'No verificable en las fotografías.'),
+    };
+  });
+}
+
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   response.setHeader('Cache-Control', 'no-store');
   if (request.method !== 'POST') {
@@ -40,7 +55,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return;
   }
 
-  const prompt = `You are a cautious commercial product analyst. Analyze only what is visibly supported by the supplied 2-3 product photographs. Do not invent dimensions, unseen sides, exact brand spelling, materials, or colors when they cannot be confirmed. Return ONLY valid JSON with these string fields: name, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails, and one numeric field confidence (0-100). Write values in Spanish. Use concise phrases. In unknownDetails explicitly list what needs another photo or user confirmation. protectedDetails must identify visual details that should not be altered in later image generation.`;
+  const prompt = `You are a cautious forensic commercial product analyst. Analyze only what is visibly supported by the supplied 2-3 product photographs. Do not invent dimensions, unseen sides, exact brand spelling, materials, or colors when they cannot be confirmed.
+
+First identify the product category. If it is a hat or sombrero, perform this forensic audit IN THIS ORDER: 1) type and crown/hat block silhouette, 2) crown shape and visible creases, 3) brim width/curvature/edge finish, 4) material and finish, 5) color family and estimated hex colors, 6) hatband and hardware, 7) interior and markings, 8) wear and age, 9) apparent scale and size. For every point document only what you see. Never state inches, size, interior details, branding or material as fact unless visible. Mark unavailable information as not_visible.
+
+For other product categories, create a similarly practical visual audit of the most identity-critical features.
+
+Return ONLY valid JSON in Spanish with string fields: name, category, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails; numeric field confidence (0-100); and audit as an array of objects with exactly label, status, observation. status must be one of visible, estimated, not_visible. Use concise phrases. protectedDetails must identify visual details that must not change in later image generation.`;
   try {
     const upstream = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-image:generateContent', {
       method: 'POST',
@@ -60,6 +81,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const profile = parseJson(text);
     response.status(200).json({ profile: {
       name: String(profile.name || 'Producto sin identificar'),
+      category: String(profile.category || 'Producto'),
       materials: String(profile.materials || ''),
       colors: String(profile.colors || ''),
       protectedDetails: String(profile.protectedDetails || ''),
@@ -67,6 +89,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       detectedDetails: String(profile.detectedDetails || ''),
       unknownDetails: String(profile.unknownDetails || ''),
       confidence: Math.max(0, Math.min(100, Number(profile.confidence) || 0)),
+      audit: sanitizeAudit(profile.audit),
     } });
   } catch (error) {
     console.error('Product profile analysis failed', error);
