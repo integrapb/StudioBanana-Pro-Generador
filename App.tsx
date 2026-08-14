@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImageFile, AppStatus, GenerationResult } from './types';
+import { ImageFile, AppStatus, GenerationResult, PreciseProductData } from './types';
 import { GeminiService, AnalyzedConcept, PromptVariant } from './services/geminiService';
 import { OpenRouterService, OPENROUTER_IMAGE_MODELS, OpenRouterImageModel } from './services/openRouterService';
 import { GeminiImageService, GEMINI_IMAGE_MODEL } from './services/geminiImageService';
@@ -9,6 +9,8 @@ import { ImageUploader } from './components/ImageUploader';
 import { ImageInspector } from './components/ImageInspector';
 import { ImageMasker } from './components/ImageMasker';
 import { ComposerCanvas } from './components/ComposerCanvas';
+import { PreciseProductStudio } from './components/PreciseProductStudio';
+import { buildPreciseProductPrompt, selectPreciseProductReferences } from './services/preciseProductService';
 
 
 const SHOT_TYPES = [
@@ -203,7 +205,7 @@ const App: React.FC = () => {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTool, setActiveTool] = useState<'generator' | 'prompt-lab' | 'composer'>('generator');
+  const [activeTool, setActiveTool] = useState<'generator' | 'prompt-lab' | 'composer' | 'precise-product'>('generator');
 
   // Composer State
   const [composerProduct, setComposerProduct] = useState<ImageFile[]>([]);
@@ -230,6 +232,11 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [results, setResults] = useState<GenerationResult[]>([]);
+  const [preciseProductData, setPreciseProductData] = useState<PreciseProductData>({
+    images: [], sceneReference: [], targetAngle: 'front', prompt: '', aspectRatio: '1:1',
+    passport: { name: '', dimensions: '', materials: '', colors: '', protectedDetails: '', notes: '' },
+  });
+  const [preciseResults, setPreciseResults] = useState<GenerationResult[]>([]);
   const [inspectingImage, setInspectingImage] = useState<string | null>(null);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
 
@@ -453,6 +460,38 @@ const App: React.FC = () => {
     }
   };
 
+  const handleGeneratePreciseProduct = async () => {
+    if (preciseProductData.images.length === 0) return;
+    setStatus(AppStatus.GENERATING);
+    setProgress({ current: 0, total: 1 });
+    try {
+      const isGrok = selectedEngine === 'x-ai/grok-imagine-image-2.0';
+      const productLimit = isGrok
+        ? (preciseProductData.sceneReference.length ? 2 : 3)
+        : (preciseProductData.sceneReference.length ? 5 : 6);
+      const productReferences = selectPreciseProductReferences(
+        preciseProductData.images,
+        preciseProductData.targetAngle,
+        productLimit,
+      );
+      const precisePrompt = buildPreciseProductPrompt(preciseProductData);
+      setProgress({ current: 1, total: 1 });
+      const url = selectedEngine === GEMINI_IMAGE_MODEL.id
+        ? await getGeminiImageService().generateProductImage(productReferences, preciseProductData.sceneReference[0] || null, precisePrompt, 0, undefined, undefined, preciseProductData.aspectRatio)
+        : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productReferences, preciseProductData.sceneReference[0] || null, precisePrompt, 0, undefined, undefined, preciseProductData.aspectRatio);
+      const engine = IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'IA';
+      setPreciseResults(prev => [{ imageUrl: url, prompt: precisePrompt, timestamp: Date.now(), engine }, ...prev]);
+      setStatus(AppStatus.SUCCESS);
+      setErrorMessage(null);
+    } catch (e: any) {
+      console.error('Error generating precise product:', e);
+      setErrorMessage(e.message || 'No fue posible generar el producto preciso.');
+      setStatus(AppStatus.ERROR);
+    } finally {
+      setProgress({ current: 0, total: 0 });
+    }
+  };
+
   const runPromptLab = async (files: ImageFile[]) => {
     if (files.length === 0) return;
     setLabImage(files);
@@ -531,7 +570,7 @@ const App: React.FC = () => {
               </div>
             </div>
             
-            <nav className="flex bg-slate-900/50 p-2 rounded-2xl border border-white/5 shadow-inner gap-1">
+            <nav className="grid grid-cols-2 bg-slate-900/50 p-2 rounded-2xl border border-white/5 shadow-inner gap-1">
               <button onClick={() => setActiveTool('generator')} className={`flex-1 py-3 rounded-xl transition-all ${activeTool === 'generator' ? 'bg-blue-600 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}>
                 <span className="text-[10px] font-black uppercase tracking-widest">Generador</span>
               </button>
@@ -540,6 +579,9 @@ const App: React.FC = () => {
               </button>
               <button onClick={() => setActiveTool('prompt-lab')} className={`flex-1 py-3 rounded-xl transition-all ${activeTool === 'prompt-lab' ? 'bg-blue-600 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}>
                 <span className="text-[10px] font-black uppercase tracking-widest">Prompt Lab</span>
+              </button>
+              <button onClick={() => setActiveTool('precise-product')} className={`py-3 rounded-xl transition-all ${activeTool === 'precise-product' ? 'bg-emerald-600 text-white shadow-xl' : 'text-emerald-500/70 hover:text-emerald-300'}`}>
+                <span className="text-[10px] font-black uppercase tracking-widest">Producto Preciso</span>
               </button>
             </nav>
           </div>
@@ -655,6 +697,14 @@ const App: React.FC = () => {
                   ))}
                 </div>
               </>
+            ) : activeTool === 'precise-product' ? (
+              <PreciseProductStudio
+                data={preciseProductData}
+                onChange={setPreciseProductData}
+                models={IMAGE_MODELS}
+                selectedModel={selectedEngine}
+                onSelectModel={(model) => setSelectedEngine(model as ImageModelId)}
+              />
             ) : activeTool === 'composer' ? (
               <div className="space-y-10 animate-in fade-in slide-in-from-top-4 duration-700">
                 <div className="p-8 bg-blue-600/5 border border-blue-500/10 rounded-[2.5rem] relative overflow-hidden group">
@@ -747,6 +797,14 @@ const App: React.FC = () => {
                   ? `REVELANDO SET 4K... (${progress.current}/${progress.total})` 
                   : "DISPARAR PRODUCCIÓN"}
               </button>
+            ) : activeTool === 'precise-product' ? (
+              <button
+                onClick={handleGeneratePreciseProduct}
+                disabled={status === AppStatus.GENERATING || preciseProductData.images.length === 0}
+                className="w-full py-7 bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-900 rounded-[2.5rem] font-black text-[13px] uppercase tracking-[0.25em] shadow-[0_20px_50px_rgba(16,185,129,0.25)] disabled:opacity-50 hover:scale-[1.02] transition-all active:scale-95 text-white border border-white/10"
+              >
+                {status === AppStatus.GENERATING ? `VALIDANDO IDENTIDAD... (${progress.current}/${progress.total})` : 'GENERAR PRODUCTO PRECISO'}
+              </button>
             ) : activeTool === 'composer' ? (
               composerStage === 'setup' ? (
                 <button 
@@ -784,7 +842,7 @@ const App: React.FC = () => {
         <header className="h-24 border-b border-white/5 bg-[#020817]/80 backdrop-blur-3xl flex items-center justify-between px-16 z-20">
           <div className="flex items-center gap-8">
             <h1 className="text-2xl font-black italic tracking-tighter text-white uppercase leading-none">
-              {activeTool === 'generator' ? 'Darkroom Gallery' : activeTool === 'composer' ? 'Composition Deck' : 'Reverse Engineer Lab'}
+              {activeTool === 'generator' ? 'Darkroom Gallery' : activeTool === 'composer' ? 'Composition Deck' : activeTool === 'precise-product' ? 'Product Identity Studio' : 'Reverse Engineer Lab'}
             </h1>
             <div className="h-6 w-[1px] bg-white/10"></div>
             <div className="flex items-center gap-3">
@@ -839,6 +897,20 @@ const App: React.FC = () => {
                       }} 
                     />
                   ))}
+                </div>
+              )}
+            </div>
+          ) : activeTool === 'precise-product' ? (
+            <div className="max-w-7xl mx-auto">
+              {preciseResults.length === 0 ? (
+                <div className="h-[65vh] flex flex-col items-center justify-center border-2 border-dashed border-emerald-500/15 rounded-[5rem] bg-emerald-500/[0.02] text-center px-12">
+                  <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-7 text-3xl">◈</div>
+                  <h2 className="text-3xl font-black italic text-white uppercase">Producto Preciso</h2>
+                  <p className="max-w-lg mt-5 text-[11px] leading-relaxed text-slate-500 uppercase tracking-wide">Carga los ángulos del producto, define su pasaporte y crea una fotografía con identidad estructurada. Esta beta no altera el generador clásico.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 pb-40">
+                  {preciseResults.map((res, i) => <ResultCard key={res.timestamp + i} res={res} index={i} onInspect={setInspectingImage} onEdit={async () => {}} />)}
                 </div>
               )}
             </div>
