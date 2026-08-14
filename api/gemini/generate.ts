@@ -1,4 +1,12 @@
 const ALLOWED_ASPECT_RATIOS = new Set(['1:1', '4:3', '3:4', '16:9', '9:16']);
+// The GenerateContent REST API expects protobuf enum names, not the UI labels.
+const GEMINI_ASPECT_RATIO: Record<string, string> = {
+  '1:1': 'ASPECT_RATIO_ONE_BY_ONE',
+  '4:3': 'ASPECT_RATIO_FOUR_BY_THREE',
+  '3:4': 'ASPECT_RATIO_THREE_BY_FOUR',
+  '16:9': 'ASPECT_RATIO_SIXTEEN_BY_NINE',
+  '9:16': 'ASPECT_RATIO_NINE_BY_SIXTEEN',
+};
 
 type ApiRequest = {
   method?: string;
@@ -59,7 +67,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
           contents: [{ parts: [...imageParts, { text: prompt }] }],
           generationConfig: {
             responseModalities: ['IMAGE'],
-            responseFormat: { image: { aspectRatio, imageSize: '2K' } },
+            responseFormat: {
+              image: {
+                aspectRatio: GEMINI_ASPECT_RATIO[aspectRatio],
+                imageSize: 'IMAGE_SIZE_TWO_K',
+              },
+            },
           },
         }),
       },
