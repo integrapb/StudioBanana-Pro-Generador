@@ -4,8 +4,8 @@ import { buildProductPrompt } from './openRouterService';
 
 export const GEMINI_IMAGE_MODEL = {
   id: 'gemini-3.1-flash-image',
-  label: 'Gemini Nano Banana',
-  description: 'Fidelidad de producto con la API Gemini',
+  label: 'Gemini 3.1 Flash Image',
+  description: 'Generación rápida y consistente con referencias visuales',
 } as const;
 
 export class GeminiImageService {

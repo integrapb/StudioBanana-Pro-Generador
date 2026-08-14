@@ -63,7 +63,7 @@ For other product categories, create a similarly practical visual audit of the m
 
 Return ONLY valid JSON in Spanish with string fields: name, category, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails; numeric field confidence (0-100); and audit as an array of objects with exactly label, status, observation. status must be one of visible, estimated, not_visible. Use concise phrases. protectedDetails must identify visual details that must not change in later image generation.`;
   try {
-    const upstream = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-image:generateContent', {
+    const upstream = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-3-pro-image:generateContent', {
       method: 'POST',
       headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
