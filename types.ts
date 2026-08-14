@@ -10,6 +10,16 @@ export interface GenerationResult {
   imageUrl: string;
   prompt: string;
   timestamp: number;
+  engine?: string;
+}
+
+declare global {
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
 }
 
 export enum AppStatus {

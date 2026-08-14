@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ImageFile, AppStatus, GenerationResult } from './types';
 import { GeminiService, AnalyzedConcept, PromptVariant } from './services/geminiService';
+import { OpenRouterService, OPENROUTER_IMAGE_MODELS, OpenRouterImageModel } from './services/openRouterService';
 import { SavedProduct } from './services/productStore';
 import { ProductLibrary } from './components/ProductLibrary';
 import { ImageUploader } from './components/ImageUploader';
@@ -70,7 +71,7 @@ const ResultCard: React.FC<{
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
-            <p className="text-[10px] text-blue-500 font-black uppercase tracking-widest">Master Render 4K</p>
+            <p className="text-[10px] text-blue-500 font-black uppercase tracking-widest">{res.engine || 'Gemini'} · Master Render</p>
           </div>
           {activeMask && (
             <div className="flex items-center gap-2 px-3 py-1 bg-blue-600/10 border border-blue-500/20 rounded-full">
@@ -219,6 +220,7 @@ const App: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [selectedShot, setSelectedShot] = useState<string | null>(null);
   const [selectedRatio, setSelectedRatio] = useState<string>('1:1');
+  const [selectedEngine, setSelectedEngine] = useState<'gemini' | OpenRouterImageModel>('gemini');
   const [variationCount, setVariationCount] = useState(1);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -233,12 +235,14 @@ const App: React.FC = () => {
   const [inputKey, setInputKey] = useState('');
 
   const geminiServiceRef = useRef<GeminiService | null>(null);
+  const openRouterServiceRef = useRef<OpenRouterService | null>(null);
 
   useEffect(() => {
     const checkKey = async () => {
+      let configured = false;
       if (window.aistudio) {
         if (await window.aistudio.hasSelectedApiKey()) {
-          setHasApiKey(true);
+          configured = true;
         }
       } else {
         const localKey = localStorage.getItem('studiobanana_api_key');
@@ -247,14 +251,25 @@ const App: React.FC = () => {
           (localKey && localKey.trim() !== '') ||
           (envKey && envKey !== 'PLACEHOLDER_API_KEY' && envKey.trim() !== '')
         ) {
-          setHasApiKey(true);
+          configured = true;
         }
       }
+      if (!configured) {
+        try {
+          const response = await fetch('/api/openrouter/status');
+          const data = await response.json();
+          configured = Boolean(data.configured);
+        } catch {
+          // In local Vite, Vercel API functions are not available. Gemini remains usable there.
+        }
+      }
+      setHasApiKey(configured);
     };
     checkKey();
   }, []);
 
   const getService = () => (geminiServiceRef.current || (geminiServiceRef.current = new GeminiService()));
+  const getOpenRouterService = () => (openRouterServiceRef.current || (openRouterServiceRef.current = new OpenRouterService()));
 
   // ── Product Library handlers ─────────────────────────────────────────────
   const handleSelectProduct = (product: SavedProduct) => {
@@ -387,8 +402,13 @@ const App: React.FC = () => {
       
       for (let i = 0; i < variationCount; i++) {
         setProgress(p => ({ ...p, current: p.current + 1 }));
-        const url = await service.generateProductImage(productImages, referenceImage[0] || null, prompt, i, analyzedData || undefined, undefined, null, null, selectedRatio);
-        setResults(prev => [{ imageUrl: url, prompt, timestamp: Date.now() + i }, ...prev]);
+        const url = selectedEngine === 'gemini'
+          ? await service.generateProductImage(productImages, referenceImage[0] || null, prompt, i, analyzedData || undefined, undefined, null, null, selectedRatio)
+          : await getOpenRouterService().generateProductImage(selectedEngine, productImages, referenceImage[0] || null, prompt, i, analyzedData || undefined, undefined, selectedRatio);
+        const engine = selectedEngine === 'gemini'
+          ? 'Gemini'
+          : OPENROUTER_IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'OpenRouter';
+        setResults(prev => [{ imageUrl: url, prompt, timestamp: Date.now() + i, engine }, ...prev]);
         if (i < variationCount - 1) {
           await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
         }
@@ -397,8 +417,13 @@ const App: React.FC = () => {
       if (selectedShot) {
         setProgress(p => ({ ...p, current: p.current + 1 }));
         const shotInfo = SHOT_TYPES.find(s => s.id === selectedShot);
-        const url = await service.generateProductImage(productImages, referenceImage[0] || null, prompt, 0, analyzedData || undefined, shotInfo?.label, null, null, selectedRatio);
-        setResults(prev => [{ imageUrl: url, prompt: `Especial: ${shotInfo?.label}`, timestamp: Date.now() + 99 }, ...prev]);
+        const url = selectedEngine === 'gemini'
+          ? await service.generateProductImage(productImages, referenceImage[0] || null, prompt, 0, analyzedData || undefined, shotInfo?.label, null, null, selectedRatio)
+          : await getOpenRouterService().generateProductImage(selectedEngine, productImages, referenceImage[0] || null, prompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio);
+        const engine = selectedEngine === 'gemini'
+          ? 'Gemini'
+          : OPENROUTER_IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'OpenRouter';
+        setResults(prev => [{ imageUrl: url, prompt: `Especial: ${shotInfo?.label}`, timestamp: Date.now() + 99, engine }, ...prev]);
       }
 
       setStatus(AppStatus.SUCCESS);
@@ -558,7 +583,7 @@ const App: React.FC = () => {
                     </div>
                   )}
                 </div>
-                
+
                 <div className="space-y-4">
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">3. Relación de Aspecto</label>
                   <div className="grid grid-cols-5 gap-2">
@@ -572,6 +597,37 @@ const App: React.FC = () => {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">4. Motor de IA</label>
+                    <span className="text-[8px] font-black text-emerald-400/80 uppercase tracking-widest">OpenRouter seguro</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setSelectedEngine('gemini')}
+                      className={`p-3 rounded-2xl border text-left transition-all ${selectedEngine === 'gemini' ? 'bg-blue-600 border-blue-400 text-white shadow-md' : 'bg-slate-900/50 border-white/5 text-slate-500 hover:border-white/10'}`}
+                    >
+                      <div className="text-[10px] font-black uppercase">Gemini actual</div>
+                      <div className="text-[8px] opacity-60 mt-1">Flujo original</div>
+                    </button>
+                    {OPENROUTER_IMAGE_MODELS.map(model => (
+                      <button
+                        key={model.id}
+                        onClick={() => setSelectedEngine(model.id)}
+                        className={`p-3 rounded-2xl border text-left transition-all ${selectedEngine === model.id ? 'bg-indigo-600 border-indigo-400 text-white shadow-md' : 'bg-slate-900/50 border-white/5 text-slate-500 hover:border-white/10'}`}
+                      >
+                        <div className="text-[10px] font-black uppercase">{model.label}</div>
+                        <div className="text-[8px] opacity-60 mt-1 leading-tight">{model.description}</div>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedEngine !== 'gemini' && (
+                    <p className="text-[9px] text-amber-300/80 leading-relaxed">
+                      Cada modelo admite referencias de imagen de forma distinta. Para máxima fidelidad, prueba primero GPT Image con 1–3 ángulos nítidos del producto.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-4">
