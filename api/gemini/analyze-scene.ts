@@ -20,7 +20,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   const category = typeof request.body?.productCategory === 'string' ? request.body.productCategory : 'product';
   const prompt = `Analyze this commercial photography reference as a SCENE only. A separate real ${category} will be implanted later. Do not describe or preserve the product currently visible in the scene. Return ONLY valid JSON in Spanish with string fields lighting, environment, camera, colorPalette, aesthetic, subject, productPlacement, integrationRules, scenePrompt and numeric confidence (0-100). productPlacement must explain where and how the real ${category} should appear. integrationRules must cover scale, perspective, contact, occlusion, inherited light and physically correct shadows. If the product is wearable, include believable contact with body, hair or clothing. scenePrompt must be a concise English photographic direction describing only the scene, camera, light, subject and placement — never the identity of the replacement product.`;
   try {
-    const upstream = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-3-pro-image:generateContent', {
+    const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent', {
       method: 'POST',
       headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [reference, { text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } }),
