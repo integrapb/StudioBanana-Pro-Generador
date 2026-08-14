@@ -5,7 +5,7 @@ export const OPENROUTER_IMAGE_MODELS = [
   {
     id: 'bytedance-seed/seedream-5-0-pro',
     label: 'Seedream 5 Pro',
-    description: 'Alta resolución y hasta 14 referencias',
+    description: 'Alta resolución para fotografía de producto',
   },
   {
     id: 'openai/gpt-image-2',
