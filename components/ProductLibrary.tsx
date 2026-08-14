@@ -125,6 +125,7 @@ export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onC
   const [newName, setNewName]         = useState('');
   const [newImages, setNewImages]     = useState<ImageFile[]>([]);
   const [saving, setSaving]           = useState(false);
+  const [analyzingProductId, setAnalyzingProductId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -136,27 +137,40 @@ export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onC
     if (creating) setTimeout(() => nameInputRef.current?.focus(), 50);
   }, [creating]);
 
+  const analyzeAndSave = async (product: SavedProduct) => {
+    const profileSeed = product.productProfile || createSavedProduct(product.name, product.images).productProfile!;
+    let updated: SavedProduct = {
+      ...product,
+      productProfile: { ...profileSeed, status: 'pending', error: undefined },
+    };
+    setAnalyzingProductId(product.id);
+    await saveProduct(updated);
+    await load();
+    try {
+      const productProfile = await analyzeStoredProduct(product.images, product.name);
+      updated = { ...updated, productProfile };
+    } catch (error: any) {
+      updated = {
+        ...updated,
+        productProfile: {
+          ...updated.productProfile!,
+          status: 'failed',
+          error: error.message || 'No fue posible analizar el producto.',
+        },
+      };
+    } finally {
+      await saveProduct(updated);
+      await load();
+      setAnalyzingProductId(null);
+    }
+    return updated;
+  };
+
   const handleSave = async () => {
     if (!newName.trim() || newImages.length === 0) return;
     setSaving(true);
     try {
-      let p = createSavedProduct(newName, newImages);
-      await saveProduct(p);
-      try {
-        const productProfile = await analyzeStoredProduct(newImages, newName);
-        p = { ...p, productProfile };
-      } catch (error: any) {
-        p = {
-          ...p,
-          productProfile: {
-            ...p.productProfile!,
-            status: 'failed',
-            error: error.message || 'No fue posible analizar el producto.',
-          },
-        };
-      }
-      await saveProduct(p);
-      await load();
+      const p = await analyzeAndSave(createSavedProduct(newName, newImages));
       setCreating(false);
       setNewName('');
       setNewImages([]);
@@ -164,6 +178,11 @@ export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onC
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleRetryAnalysis = async (event: React.MouseEvent, product: SavedProduct) => {
+    event.stopPropagation();
+    await analyzeAndSave(product);
   };
 
   const handleDelete = async (id: string) => {
@@ -272,9 +291,10 @@ export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onC
                   <p className="text-[8px] text-slate-600 mt-0.5">
                     {p.images.length} ángulo{p.images.length !== 1 ? 's' : ''}
                   </p>
-                  <p className={`text-[7px] mt-1 font-black uppercase tracking-wide ${p.productProfile?.status === 'ready' ? 'text-emerald-500' : p.productProfile?.status === 'failed' ? 'text-amber-500' : 'text-slate-600'}`}>
-                    {p.productProfile?.status === 'ready' ? `Perfil IA ${p.productProfile.confidence}%` : p.productProfile?.status === 'failed' ? 'Perfil pendiente' : 'Sin perfil IA'}
+                  <p className={`text-[7px] mt-1 font-black uppercase tracking-wide ${p.productProfile?.status === 'ready' ? 'text-emerald-500' : p.productProfile?.status === 'failed' ? 'text-red-400' : 'text-blue-400'}`}>
+                    {analyzingProductId === p.id || p.productProfile?.status === 'pending' ? 'Analizando perfil...' : p.productProfile?.status === 'ready' ? `Perfil IA ${p.productProfile.confidence}%` : p.productProfile?.status === 'failed' ? 'Error de análisis' : 'Sin perfil IA'}
                   </p>
+                  {p.productProfile?.status === 'failed' && <p className="text-[7px] leading-tight text-red-300/70 mt-1 line-clamp-2">{p.productProfile.error || 'No fue posible conectar con Gemini.'}</p>}
                 </div>
 
                 {/* Active badge / delete */}
@@ -283,6 +303,17 @@ export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onC
                     <span className="text-[7px] font-black text-blue-400 uppercase tracking-widest bg-blue-600/20 px-2 py-1 rounded-full">
                       Activo
                     </span>
+                  )}
+
+                  {(p.productProfile?.status === 'failed' || !p.productProfile) && (
+                    <button
+                      onClick={(event) => handleRetryAnalysis(event, p)}
+                      disabled={analyzingProductId === p.id}
+                      title={p.productProfile?.error || 'Crear perfil con IA'}
+                      className="text-[7px] font-black uppercase tracking-wide text-blue-400 hover:text-blue-300 disabled:opacity-40 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded-lg"
+                    >
+                      {analyzingProductId === p.id ? '...' : 'Analizar'}
+                    </button>
                   )}
 
                   {/* Delete */}
