@@ -22,11 +22,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
 Document: shot type and framing; camera height relative to subject/product; focal length and perspective; depth of field; aspect/composition; light source, direction, hardness, temperature and shadow length; how the product should cast shadows on face/body/surface; time of day; dominant palette and grade; environment and material surfaces; subject pose, expression and gaze; wardrobe; props and their wear; grain, vignette, halation and sharpening; any existing product, its angle and whether it must be replaced; the exact product view required from front, back, left, right, three-quarter, top, bottom, detail or unknown.
 
-Create a practical photometric plan: keyLight with azimuth/elevation, apparent source size, hardness, color temperature and intensity; fillLight and rimLight relative to key; ambientBounce including colored reflections from nearby surfaces; exposurePlan and whiteBalance; shadow behavior. Create a physical placement plan: apparent scale, orientation, support plane, contact points, perspective, parts in front/behind, and depth-of-field match. Do not claim numerical certainty when the image does not support it; use approximate photographic language.
-
 Separate what should be copied from what must be ignored. productPlacement must state where and how the real ${category} appears. integrationRules must enforce scale, perspective, contact, occlusion, inherited light and physical shadows. For wearables include contact with body, hair and clothing.
 
-Return ONLY valid JSON in Spanish with string fields composition, lighting, environment, camera, colorPalette, aesthetic, subject, productPlacement, integrationRules, scenePrompt, framing, cameraHeight, focalLength, depthOfField, timeOfDay, shadowBehavior, wardrobe, props, postProcessing, originalProduct, copyElements, ignoreElements, keyLight, fillLight, rimLight, ambientBounce, exposurePlan, whiteBalance, placementPlan, contactPlan, occlusionPlan; desiredProductView as exactly front, back, left, right, three-quarter, top, bottom, detail or unknown; and numeric confidence. scenePrompt must be concise ENGLISH photographic direction describing scene, subject, camera and light only, never the replacement product identity.`;
+Return ONLY valid JSON in Spanish with string fields composition, lighting, environment, camera, colorPalette, aesthetic, subject, productPlacement, integrationRules, scenePrompt, framing, cameraHeight, focalLength, depthOfField, timeOfDay, shadowBehavior, wardrobe, props, postProcessing, originalProduct, copyElements, ignoreElements; desiredProductView as exactly front, back, left, right, three-quarter, top, bottom, detail or unknown; and numeric confidence. scenePrompt must be concise ENGLISH photographic direction describing scene, subject, camera and light only, never the replacement product identity.`;
   try {
     const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', {
       method: 'POST',
@@ -50,9 +48,6 @@ Return ONLY valid JSON in Spanish with string fields composition, lighting, envi
       originalProduct: String(scene.originalProduct || ''),
       desiredProductView: ['front', 'back', 'left', 'right', 'three-quarter', 'top', 'bottom', 'detail', 'unknown'].includes(scene.desiredProductView) ? scene.desiredProductView : 'unknown',
       copyElements: String(scene.copyElements || ''), ignoreElements: String(scene.ignoreElements || ''),
-      keyLight: String(scene.keyLight || ''), fillLight: String(scene.fillLight || ''), rimLight: String(scene.rimLight || ''),
-      ambientBounce: String(scene.ambientBounce || ''), exposurePlan: String(scene.exposurePlan || ''), whiteBalance: String(scene.whiteBalance || ''),
-      placementPlan: String(scene.placementPlan || ''), contactPlan: String(scene.contactPlan || ''), occlusionPlan: String(scene.occlusionPlan || ''),
     } });
   } catch (error) {
     console.error('Scene analysis failed', error);

@@ -1,4 +1,4 @@
-import type { ImageFile, IntegrationAudit, ProductImageView, ProductProfile, SceneBlueprint } from '../types';
+import type { ImageFile, ProductImageView, ProductProfile, SceneBlueprint } from '../types';
 import type { AnalyzedConcept } from './geminiService';
 
 export async function analyzeStoredProduct(images: ImageFile[], name: string): Promise<ProductProfile> {
@@ -29,50 +29,6 @@ export async function analyzeSceneReference(reference: ImageFile, productProfile
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.scene) throw new Error(result.error || 'No fue posible analizar la escena.');
   return result.scene as SceneBlueprint;
-}
-
-function compressForAudit(source: string): Promise<string> {
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => {
-      const maxSide = 1024;
-      const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.82));
-    };
-    image.onerror = () => resolve(source);
-    image.src = source;
-  });
-}
-
-export async function auditGeneratedIntegration(
-  generatedImage: string,
-  productImages: ImageFile[],
-  sceneReference: ImageFile | null,
-  profile?: ProductProfile | null,
-): Promise<IntegrationAudit> {
-  const productSources = productImages.slice(0, 2).map((image) => image.preview);
-  const [compressedGenerated, compressedScene, ...compressedProducts] = await Promise.all([
-    compressForAudit(generatedImage),
-    sceneReference ? compressForAudit(sceneReference.preview) : Promise.resolve(''),
-    ...productSources.map(compressForAudit),
-  ]);
-  const response = await fetch('/api/gemini/audit-integration', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      generatedImage: compressedGenerated,
-      productReferences: compressedProducts,
-      sceneReference: compressedScene || null,
-      productIdentity: profile?.productBlock || profile?.protectedDetails || '',
-    }),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || !result.audit) throw new Error(result.error || 'No fue posible auditar la integración.');
-  return result.audit as IntegrationAudit;
 }
 
 function confidence(view?: ProductImageView): number {
@@ -131,7 +87,6 @@ export function compileGenerationPrompt(
   profile: ProductProfile,
   scene?: SceneBlueprint | null,
   userDirection = '',
-  realisticIntegration = false,
 ): string {
   const audit = visibleAudit(profile);
   const selectedView = scene?.desiredProductView || 'the view that best matches the target placement';
@@ -151,13 +106,6 @@ ${audit || '- Preserve every visible geometric, material and graphic feature fro
 PROTECTED PRODUCT DETAILS
 ${profile.protectedDetails || 'Preserve all visible shape, proportions, construction, colors, texture, hardware, labels, logos and wear exactly.'}
 
-${realisticIntegration ? `INTRINSIC PRODUCT PROPERTIES — PRESERVE
-${profile.intrinsicProperties || profile.productBlock}
-
-SOURCE-PHOTO LIGHTING — DISCARD
-${profile.sourceLightingToIgnore || 'Ignore highlights, reflections, shadows, exposure, white balance and background color casts baked into the product source photographs.'}
-These are temporary illumination effects, not product identity.` : ''}
-
 UNKNOWN OR UNVERIFIED DETAILS
 ${profile.unknownDetails || 'Anything not visible in the product references.'}
 Never invent, mirror, relocate, simplify or beautify an unknown feature. Hide it naturally or keep it consistent with the nearest visible evidence.
@@ -169,19 +117,6 @@ PHYSICAL INTEGRATION
 ${scene.integrationRules}
 Match contact points, occlusion, scale, orientation, perspective, reflected light, cast shadows and depth of field so the exact product belongs in the photographed scene.` : `SCENE DIRECTION
 ${userDirection || 'Neutral premium studio product photography with controlled realistic light and an uncluttered background.'}`}
-
-${realisticIntegration && scene ? `PHOTOMETRIC RELIGHTING AND PLACEMENT
-- Key light: ${scene.keyLight || scene.lighting}
-- Fill light: ${scene.fillLight || 'infer the scene fill-to-key ratio'}
-- Rim light: ${scene.rimLight || 'apply only if visibly supported'}
-- Ambient bounce and reflected color: ${scene.ambientBounce || 'inherit nearby surface colors naturally'}
-- Exposure: ${scene.exposurePlan || 'match scene exposure, highlight roll-off and black level'}
-- White balance: ${scene.whiteBalance || 'match the scene white balance'}
-- Placement: ${scene.placementPlan || scene.productPlacement}
-- Contact: ${scene.contactPlan || 'create physically connected contact and cast shadows'}
-- Occlusion: ${scene.occlusionPlan || 'respect every foreground and background overlap'}
-
-Discard the lighting baked into the product reference photos, then re-render the exact product under the scene illumination. Generate material-correct highlights and reflections, ambient color contamination, contact shadows and cast shadows. Match perspective, exposure, depth of field, grain, sharpness and lens behavior. The product must not look pasted, floating, separately exposed or photographed in another studio.` : ''}
 
 ${scene && userDirection ? `ADDITIONAL USER DIRECTION
 ${userDirection}

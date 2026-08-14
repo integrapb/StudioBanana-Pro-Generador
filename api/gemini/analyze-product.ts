@@ -77,13 +77,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
 For each input image, create one imageViews entry using its zero-based input index. Classify view as exactly one of: front, back, left, right, three-quarter, top, bottom, detail, unknown. Describe visible geometry and assign confidence 0-100.
 
-Build identity evidence in three levels: visible facts, cautious estimates, and not visible. Capture silhouette, proportions, distinctive geometry, construction, surface, reflectivity, transparency, exact visible colors, logos/text positions, seams, edges, closures, hardware, wear and imperfections. Explicitly separate intrinsic physical properties (base color/albedo, geometry, material, roughness, transparency, texture and markings) from temporary appearance caused by the source photograph (highlights, reflections, cast shadows, exposure, white balance and background color contamination). The latter must not be copied into a new scene.
+Build identity evidence in three levels: visible facts, cautious estimates, and not visible. Capture silhouette, proportions, distinctive geometry, construction, surface, reflectivity, transparency, exact visible colors, logos/text positions, seams, edges, closures, hardware, wear and imperfections.
 
 First identify the product category. If it is a hat or sombrero, perform this forensic audit IN THIS ORDER: 1) type and crown/hat block silhouette, 2) crown shape and visible creases, 3) brim width/curvature/edge finish, 4) material and finish, 5) color family and estimated hex colors, 6) hatband and hardware, 7) interior and markings, 8) wear and age, 9) apparent scale and size. For every point document only what you see. Never state inches, size, interior details, branding or material as fact unless visible. Mark unavailable information as not_visible.
 
 For other categories, create a similarly practical audit focused on features that distinguish this exact product from a similar substitute.
 
-Return ONLY valid JSON in Spanish with string fields name, category, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails, intrinsicProperties, sourceLightingToIgnore; numeric confidence; audit array with label, status, observation; imageViews array with index, view, description, confidence; and productBlock as a dense 100-180 word ENGLISH identity lock. status must be visible, estimated or not_visible. intrinsicProperties must describe only illumination-independent evidence. sourceLightingToIgnore must identify highlights, reflections, shadows and color casts baked into the source photos. productBlock must contain only product identity, lead with the most distinctive geometry, distinguish verified facts from unknowns, preserve branding positions and wear, and contain no scene, mood, camera or lighting instructions.`;
+Return ONLY valid JSON in Spanish with string fields name, category, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails; numeric confidence; audit array with label, status, observation; imageViews array with index, view, description, confidence; and productBlock as a dense 100-180 word ENGLISH identity lock. status must be visible, estimated or not_visible. productBlock must contain only product identity, lead with the most distinctive geometry, distinguish verified facts from unknowns, preserve branding positions and wear, and contain no scene, mood, camera or lighting instructions.`;
   try {
     const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', {
       method: 'POST',
@@ -114,8 +114,6 @@ Return ONLY valid JSON in Spanish with string fields name, category, materials, 
       audit: sanitizeAudit(profile.audit),
       productBlock: String(profile.productBlock || profile.detectedDetails || ''),
       imageViews: sanitizeImageViews(profile.imageViews, references.length),
-      intrinsicProperties: String(profile.intrinsicProperties || profile.productBlock || ''),
-      sourceLightingToIgnore: String(profile.sourceLightingToIgnore || 'Ignore source-photo highlights, reflections, shadows, exposure and background color casts.'),
     } });
   } catch (error) {
     console.error('Product profile analysis failed', error);

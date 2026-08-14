@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImageFile, AppStatus, GenerationResult, PreciseProductData, ProductProfile, SceneBlueprint } from './types';
+import { ImageFile, AppStatus, GenerationResult, PreciseProductData, ProductProfile } from './types';
 import { GeminiService, AnalyzedConcept, PromptVariant } from './services/geminiService';
 import { OpenRouterService, OPENROUTER_IMAGE_MODELS, OpenRouterImageModel } from './services/openRouterService';
 import { GeminiImageService, GEMINI_IMAGE_MODEL } from './services/geminiImageService';
@@ -11,7 +11,7 @@ import { ImageMasker } from './components/ImageMasker';
 import { ComposerCanvas } from './components/ComposerCanvas';
 import { PreciseProductStudio } from './components/PreciseProductStudio';
 import { buildPreciseProductPrompt, selectPreciseProductReferences } from './services/preciseProductService';
-import { analyzeSceneReference, analyzeStoredProduct, auditGeneratedIntegration, compileGenerationPrompt, wireProductAndScene } from './services/productAnalysisService';
+import { analyzeSceneReference, analyzeStoredProduct, compileGenerationPrompt, wireProductAndScene } from './services/productAnalysisService';
 
 
 const SHOT_TYPES = [
@@ -80,11 +80,6 @@ const ResultCard: React.FC<{
             <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
             <p className="text-[10px] text-blue-500 font-black uppercase tracking-widest">{res.engine || 'IA'} · Master Render</p>
           </div>
-          {res.integrationAudit && !activeMask && (
-            <div className={`px-3 py-1 rounded-full border ${res.integrationAudit.passed ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-400'}`} title={res.integrationAudit.issues.join(' · ')}>
-              <span className="text-[8px] font-black uppercase tracking-widest">Realismo {Math.round(res.integrationAudit.score)}%</span>
-            </div>
-          )}
           {activeMask && (
             <div className="flex items-center gap-2 px-3 py-1 bg-blue-600/10 border border-blue-500/20 rounded-full">
               <span className="text-[8px] font-black text-blue-400 uppercase italic">Área Seleccionada</span>
@@ -228,13 +223,11 @@ const App: React.FC = () => {
   const [productImages, setProductImages] = useState<ImageFile[]>([]);
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [activeProductProfile, setActiveProductProfile] = useState<ProductProfile | null>(null);
-  const [activeSceneBlueprint, setActiveSceneBlueprint] = useState<SceneBlueprint | null>(null);
   const [referenceImage, setReferenceImage] = useState<ImageFile[]>([]);
   const [analyzedData, setAnalyzedData] = useState<AnalyzedConcept | null>(null);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [hasCompiledPrompt, setHasCompiledPrompt] = useState(false);
-  const [realisticIntegration, setRealisticIntegration] = useState(false);
   const [selectedShot, setSelectedShot] = useState<string | null>(null);
   const [selectedRatio, setSelectedRatio] = useState<string>('1:1');
   const [selectedEngine, setSelectedEngine] = useState<ImageModelId>(GEMINI_IMAGE_MODEL.id);
@@ -311,9 +304,8 @@ const App: React.FC = () => {
     setActiveProductProfile(readyProfile);
     // Reset any existing analysis since it was based on a different product
     setAnalyzedData(null);
-    setActiveSceneBlueprint(null);
     setReferenceImage([]);
-    setPrompt(readyProfile ? compileGenerationPrompt(readyProfile, null, '', realisticIntegration) : '');
+    setPrompt(readyProfile ? compileGenerationPrompt(readyProfile) : '');
     setHasCompiledPrompt(Boolean(readyProfile));
     setSelectedShot(null);
     setResults([]);
@@ -327,7 +319,6 @@ const App: React.FC = () => {
     setProductImages([]);
     setActiveProductId(null);
     setActiveProductProfile(null);
-    setActiveSceneBlueprint(null);
     setAnalyzedData(null);
     setReferenceImage([]);
     setPrompt('');
@@ -427,10 +418,10 @@ const App: React.FC = () => {
       const scene = await analyzeSceneReference(files[0], profile);
       if (contextVersion !== productContextVersionRef.current || sceneRequestVersion !== sceneRequestVersionRef.current) return;
       const analysis = wireProductAndScene(profile, scene);
+      const compiledPrompt = compileGenerationPrompt(profile, scene);
       setActiveProductProfile(profile);
-      setActiveSceneBlueprint(scene);
       setAnalyzedData(analysis);
-      setPrompt(compileGenerationPrompt(profile, scene, '', realisticIntegration));
+      setPrompt(compiledPrompt);
       setHasCompiledPrompt(true);
       setErrorMessage(null);
     } catch (e: any) {
@@ -441,20 +432,17 @@ const App: React.FC = () => {
           const fallbackAnalysis = await getService().analyzeReferenceImage(productImages, files[0]);
           if (contextVersion === productContextVersionRef.current && sceneRequestVersion === sceneRequestVersionRef.current) {
             setAnalyzedData(fallbackAnalysis);
-            setActiveSceneBlueprint(null);
             setPrompt(fallbackAnalysis.masterPrompt);
             setHasCompiledPrompt(true);
             setErrorMessage(null);
           }
         } catch (fallbackError: any) {
           setAnalyzedData(null);
-          setActiveSceneBlueprint(null);
           setHasCompiledPrompt(Boolean(activeProductProfile));
           setErrorMessage("Error al analizar la imagen de referencia: " + (fallbackError.message || e.message || "Error desconocido"));
         }
       } else {
         setAnalyzedData(null);
-        setActiveSceneBlueprint(null);
         setHasCompiledPrompt(Boolean(activeProductProfile));
         setErrorMessage("Error al analizar la imagen de referencia: " + (e.message || "Error desconocido"));
       }
@@ -468,34 +456,6 @@ const App: React.FC = () => {
     setStatus(AppStatus.GENERATING);
     const totalSteps = variationCount + (selectedShot ? 1 : 0);
     setProgress({ current: 0, total: totalSteps });
-
-    const runGeneration = (generationPrompt: string, variationIndex = 0, shotOverride?: string, compiled = hasCompiledPrompt) => (
-      selectedEngine === GEMINI_IMAGE_MODEL.id
-        ? getGeminiImageService().generateProductImage(productImages, referenceImage[0] || null, generationPrompt, variationIndex, analyzedData || undefined, shotOverride, selectedRatio, compiled)
-        : getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productImages, referenceImage[0] || null, generationPrompt, variationIndex, analyzedData || undefined, shotOverride, selectedRatio, compiled)
-    );
-
-    const auditAndCorrect = async (initialUrl: string, generationPrompt: string, variationIndex = 0, shotOverride?: string) => {
-      if (!realisticIntegration || !activeProductProfile) return { imageUrl: initialUrl, integrationAudit: undefined };
-      try {
-        const bestIndex = analyzedData?.bestProductImageIndex ?? 0;
-        const orderedForAudit = productImages[bestIndex]
-          ? [productImages[bestIndex], ...productImages.filter((_, index) => index !== bestIndex)]
-          : productImages;
-        const initialAudit = await auditGeneratedIntegration(initialUrl, orderedForAudit, referenceImage[0] || null, activeProductProfile);
-        if (initialAudit.passed || !initialAudit.correctionPrompt) return { imageUrl: initialUrl, integrationAudit: initialAudit };
-
-        const correctionPrompt = `${generationPrompt}\n\nFORENSIC QA CORRECTION — FIX ONLY THE OBSERVED FAILURES\n${initialAudit.correctionPrompt}\nPreserve all product identity constraints, composition, subject identity and scene evidence. Do not introduce unrelated changes.`;
-        const correctedUrl = await runGeneration(correctionPrompt, variationIndex, shotOverride, true);
-        const correctedAudit = await auditGeneratedIntegration(correctedUrl, orderedForAudit, referenceImage[0] || null, activeProductProfile);
-        return correctedAudit.score >= initialAudit.score
-          ? { imageUrl: correctedUrl, integrationAudit: correctedAudit }
-          : { imageUrl: initialUrl, integrationAudit: initialAudit };
-      } catch (auditError) {
-        console.warn('La auditoría de integración no pudo completarse; se conserva la generación original.', auditError);
-        return { imageUrl: initialUrl, integrationAudit: undefined };
-      }
-    };
     
     try {
       for (let i = 0; i < variationCount; i++) {
@@ -503,10 +463,11 @@ const App: React.FC = () => {
         const generationPrompt = hasCompiledPrompt && i > 0
           ? `${prompt}\n\nCONTROLLED VARIATION ${i + 1}: Preserve product identity and scene evidence; vary only a subtle photographic detail.`
           : prompt;
-        const initialUrl = await runGeneration(generationPrompt, i);
-        const { imageUrl, integrationAudit } = await auditAndCorrect(initialUrl, generationPrompt, i);
+        const url = selectedEngine === GEMINI_IMAGE_MODEL.id
+          ? await getGeminiImageService().generateProductImage(productImages, referenceImage[0] || null, generationPrompt, i, analyzedData || undefined, undefined, selectedRatio, hasCompiledPrompt)
+          : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productImages, referenceImage[0] || null, generationPrompt, i, analyzedData || undefined, undefined, selectedRatio, hasCompiledPrompt);
         const engine = IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'IA';
-        setResults(prev => [{ imageUrl, prompt, timestamp: Date.now() + i, engine, integrationAudit }, ...prev]);
+        setResults(prev => [{ imageUrl: url, prompt, timestamp: Date.now() + i, engine }, ...prev]);
         if (i < variationCount - 1) {
           await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
         }
@@ -518,10 +479,11 @@ const App: React.FC = () => {
         const shotPrompt = hasCompiledPrompt
           ? `${prompt}\n\nCAMERA OVERRIDE: ${shotInfo?.label || selectedShot}. Preserve every product identity constraint.`
           : prompt;
-        const initialUrl = await runGeneration(shotPrompt, 0, shotInfo?.label);
-        const { imageUrl, integrationAudit } = await auditAndCorrect(initialUrl, shotPrompt, 0, shotInfo?.label);
+        const url = selectedEngine === GEMINI_IMAGE_MODEL.id
+          ? await getGeminiImageService().generateProductImage(productImages, referenceImage[0] || null, shotPrompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio, hasCompiledPrompt)
+          : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productImages, referenceImage[0] || null, shotPrompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio, hasCompiledPrompt);
         const engine = IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'IA';
-        setResults(prev => [{ imageUrl, prompt: `Especial: ${shotInfo?.label}`, timestamp: Date.now() + 99, engine, integrationAudit }, ...prev]);
+        setResults(prev => [{ imageUrl: url, prompt: `Especial: ${shotInfo?.label}`, timestamp: Date.now() + 99, engine }, ...prev]);
       }
 
       setStatus(AppStatus.SUCCESS);
@@ -707,7 +669,6 @@ const App: React.FC = () => {
                     setProductImages(activeProductId ? f : [...productImages, ...f]);
                     setActiveProductId(null); // manual upload = detach from library product
                     setActiveProductProfile(null);
-                    setActiveSceneBlueprint(null);
                     setAnalyzedData(null);
                     setReferenceImage([]);
                     setPrompt('');
@@ -721,7 +682,6 @@ const App: React.FC = () => {
                     sceneRequestVersionRef.current += 1;
                     setProductImages(productImages.filter(i => i.id !== id));
                     setActiveProductProfile(null);
-                    setActiveSceneBlueprint(null);
                     setAnalyzedData(null);
                     setReferenceImage([]);
                     setPrompt('');
@@ -744,8 +704,7 @@ const App: React.FC = () => {
                       sceneRequestVersionRef.current += 1;
                       setReferenceImage([]);
                       setAnalyzedData(null);
-                      setActiveSceneBlueprint(null);
-                      setPrompt(activeProductProfile ? compileGenerationPrompt(activeProductProfile, null, '', realisticIntegration) : '');
+                      setPrompt(activeProductProfile ? compileGenerationPrompt(activeProductProfile) : '');
                       setHasCompiledPrompt(Boolean(activeProductProfile));
                     }}
                     description="Clona la luz y atmósfera de esta imagen." 
@@ -811,29 +770,6 @@ const App: React.FC = () => {
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">5. Prompt Estructurado</label>
                     {analyzedData && <span className="text-[8px] font-black text-blue-400 px-2 py-0.5 bg-blue-400/10 rounded-full border border-blue-400/20 uppercase tracking-widest italic">Análisis Inyectado</span>}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !realisticIntegration;
-                      setRealisticIntegration(next);
-                      if (activeProductProfile) {
-                        setPrompt(compileGenerationPrompt(activeProductProfile, activeSceneBlueprint, '', next));
-                        setHasCompiledPrompt(true);
-                      }
-                    }}
-                    className={`w-full p-5 rounded-3xl border text-left transition-all ${realisticIntegration ? 'bg-emerald-500/10 border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'bg-slate-900/50 border-white/5 hover:border-white/10'}`}
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className={`text-[10px] font-black uppercase tracking-widest ${realisticIntegration ? 'text-emerald-400' : 'text-slate-400'}`}>Integración realista</p>
-                        <p className="text-[9px] text-slate-600 mt-2 leading-relaxed">Reilumina el producto, audita el resultado y corrige una vez si parece pegado.</p>
-                      </div>
-                      <span className={`w-11 h-6 rounded-full p-1 transition-colors ${realisticIntegration ? 'bg-emerald-500' : 'bg-slate-800'}`}>
-                        <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${realisticIntegration ? 'translate-x-5' : ''}`}></span>
-                      </span>
-                    </div>
-                    {realisticIntegration && <p className="text-[8px] text-amber-400/70 mt-3 uppercase tracking-widest">Puede realizar una segunda generación y consumir más créditos</p>}
-                  </button>
                   <textarea value={prompt} onChange={e => setPrompt(e.target.value)} className="w-full bg-slate-950 border border-white/10 rounded-3xl p-6 text-xs min-h-[160px] focus:ring-4 focus:ring-blue-500/10 outline-none transition-all placeholder:text-slate-800 leading-relaxed font-medium" placeholder="Describe ajustes adicionales..." />
                 </div>
 
