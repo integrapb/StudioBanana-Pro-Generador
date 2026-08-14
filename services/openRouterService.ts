@@ -3,19 +3,19 @@ import type { AnalyzedConcept } from './geminiService';
 
 export const OPENROUTER_IMAGE_MODELS = [
   {
-    id: 'openai/gpt-image-1',
-    label: 'GPT Image',
-    description: 'Máxima fidelidad y edición con referencias',
+    id: 'bytedance-seed/seedream-5-0-pro',
+    label: 'Seedream 5 Pro',
+    description: 'Alta resolución y hasta 14 referencias',
   },
   {
-    id: 'google/gemini-2.5-flash-image',
-    label: 'Gemini Flash Image',
-    description: 'Rápido para variaciones comerciales',
+    id: 'openai/gpt-image-2',
+    label: 'GPT Image 2',
+    description: 'Máxima fidelidad de producto y detalles',
   },
   {
-    id: 'black-forest-labs/flux.2-pro',
-    label: 'FLUX Pro',
-    description: 'Dirección creativa y acabados editoriales',
+    id: 'x-ai/grok-imagine-image-2.0',
+    label: 'Grok Imagine 2',
+    description: 'Variaciones creativas con hasta 3 referencias',
   },
 ] as const;
 
@@ -88,7 +88,16 @@ export class OpenRouterService {
       shotOverride,
     );
 
-    const references = [...productImages, ...(referenceImage ? [referenceImage] : [])].map((image) => image.preview);
+    const bestProductIndex = analyzedConcept?.bestProductImageIndex;
+    const orderedProducts = bestProductIndex !== undefined && productImages[bestProductIndex]
+      ? [productImages[bestProductIndex], ...productImages.filter((_, index) => index !== bestProductIndex)]
+      : productImages;
+    const maxReferences = model === 'x-ai/grok-imagine-image-2.0' ? 3 : 6;
+    const productReferenceLimit = referenceImage ? maxReferences - 1 : maxReferences;
+    const references = [
+      ...orderedProducts.slice(0, productReferenceLimit),
+      ...(referenceImage ? [referenceImage] : []),
+    ].map((image) => image.preview);
     const response = await fetch('/api/openrouter/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

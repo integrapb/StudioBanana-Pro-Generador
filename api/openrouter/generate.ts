@@ -1,8 +1,8 @@
-const ALLOWED_MODELS = new Set([
-  'openai/gpt-image-1',
-  'google/gemini-2.5-flash-image',
-  'black-forest-labs/flux.2-pro',
-]);
+const MODEL_CONFIG = {
+  'bytedance-seed/seedream-5-0-pro': { maxReferences: 14, resolution: '2K' },
+  'openai/gpt-image-2': { maxReferences: 16, quality: 'high', background: 'opaque' },
+  'x-ai/grok-imagine-image-2.0': { maxReferences: 3, resolution: '2K', quality: 'medium' },
+} as const;
 
 type ApiRequest = {
   method?: string;
@@ -36,7 +36,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   const { model, prompt, aspectRatio, references } = request.body || {};
-  if (!model || !ALLOWED_MODELS.has(model)) {
+  if (!model || !(model in MODEL_CONFIG)) {
     response.status(400).json({ error: 'El modelo seleccionado no está permitido.' });
     return;
   }
@@ -52,8 +52,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     response.status(400).json({ error: 'Las imágenes de referencia no son válidas.' });
     return;
   }
-  if (references.length > 6) {
-    response.status(400).json({ error: 'Puedes enviar hasta seis imágenes de referencia.' });
+  const modelConfig = MODEL_CONFIG[model as keyof typeof MODEL_CONFIG];
+  if (references.length > modelConfig.maxReferences) {
+    response.status(400).json({ error: `Este modelo admite hasta ${modelConfig.maxReferences} imágenes de referencia.` });
     return;
   }
 
@@ -70,9 +71,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         model,
         prompt,
         aspect_ratio: aspectRatio,
-        quality: 'high',
         n: 1,
         input_references: references.map((url) => ({ type: 'image_url', image_url: { url } })),
+        ...('resolution' in modelConfig ? { resolution: modelConfig.resolution } : {}),
+        ...('quality' in modelConfig ? { quality: modelConfig.quality } : {}),
+        ...('background' in modelConfig ? { background: modelConfig.background } : {}),
       }),
     });
 
