@@ -39,6 +39,37 @@ export interface ProductAuditEntry {
   observation: string;
 }
 
+export interface ProductProfile {
+  category: string;
+  name: string;
+  materials: string;
+  colors: string;
+  protectedDetails: string;
+  detectedDetails: string;
+  unknownDetails: string;
+  notes: string;
+  confidence: number;
+  audit: ProductAuditEntry[];
+  productBlock: string;
+  status: 'ready' | 'pending' | 'failed';
+  version: number;
+  analyzedAt?: number;
+  error?: string;
+}
+
+export interface SceneBlueprint {
+  lighting: string;
+  environment: string;
+  camera: string;
+  colorPalette: string;
+  aesthetic: string;
+  subject: string;
+  productPlacement: string;
+  integrationRules: string;
+  scenePrompt: string;
+  confidence: number;
+}
+
 export interface PreciseProductData {
   images: PreciseProductImage[];
   sceneReference: ImageFile[];

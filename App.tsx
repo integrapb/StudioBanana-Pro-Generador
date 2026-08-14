@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImageFile, AppStatus, GenerationResult, PreciseProductData } from './types';
+import { ImageFile, AppStatus, GenerationResult, PreciseProductData, ProductProfile } from './types';
 import { GeminiService, AnalyzedConcept, PromptVariant } from './services/geminiService';
 import { OpenRouterService, OPENROUTER_IMAGE_MODELS, OpenRouterImageModel } from './services/openRouterService';
 import { GeminiImageService, GEMINI_IMAGE_MODEL } from './services/geminiImageService';
@@ -11,6 +11,7 @@ import { ImageMasker } from './components/ImageMasker';
 import { ComposerCanvas } from './components/ComposerCanvas';
 import { PreciseProductStudio } from './components/PreciseProductStudio';
 import { buildPreciseProductPrompt, selectPreciseProductReferences } from './services/preciseProductService';
+import { analyzeSceneReference, analyzeStoredProduct, wireProductAndScene } from './services/productAnalysisService';
 
 
 const SHOT_TYPES = [
@@ -221,6 +222,7 @@ const App: React.FC = () => {
   // Generator State
   const [productImages, setProductImages] = useState<ImageFile[]>([]);
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
+  const [activeProductProfile, setActiveProductProfile] = useState<ProductProfile | null>(null);
   const [referenceImage, setReferenceImage] = useState<ImageFile[]>([]);
   const [analyzedData, setAnalyzedData] = useState<AnalyzedConcept | null>(null);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
@@ -249,6 +251,8 @@ const App: React.FC = () => {
   const geminiServiceRef = useRef<GeminiService | null>(null);
   const geminiImageServiceRef = useRef<GeminiImageService | null>(null);
   const openRouterServiceRef = useRef<OpenRouterService | null>(null);
+  const productContextVersionRef = useRef(0);
+  const sceneRequestVersionRef = useRef(0);
 
   useEffect(() => {
     const checkKey = async () => {
@@ -290,21 +294,35 @@ const App: React.FC = () => {
 
   // ── Product Library handlers ─────────────────────────────────────────────
   const handleSelectProduct = (product: SavedProduct) => {
+    productContextVersionRef.current += 1;
+    sceneRequestVersionRef.current += 1;
     // Fully replace product images — no mixing with previous product
     setProductImages(product.images);
     setActiveProductId(product.id);
+    setActiveProductProfile(product.productProfile?.status === 'ready' ? product.productProfile : null);
     // Reset any existing analysis since it was based on a different product
     setAnalyzedData(null);
     setReferenceImage([]);
     setPrompt('');
+    setSelectedShot(null);
+    setResults([]);
+    setErrorMessage(null);
+    setStatus(AppStatus.IDLE);
   };
 
   const handleClearProduct = () => {
+    productContextVersionRef.current += 1;
+    sceneRequestVersionRef.current += 1;
     setProductImages([]);
     setActiveProductId(null);
+    setActiveProductProfile(null);
     setAnalyzedData(null);
     setReferenceImage([]);
     setPrompt('');
+    setSelectedShot(null);
+    setResults([]);
+    setErrorMessage(null);
+    setStatus(AppStatus.IDLE);
   };
 
   const handleComposerStyleUpload = async (files: ImageFile[]) => {
@@ -387,28 +405,40 @@ const App: React.FC = () => {
       return;
     }
     setReferenceImage(files);
-    if (!hasGeminiKey) {
-      setAnalyzedData(null);
-      return;
-    }
+    const contextVersion = productContextVersionRef.current;
+    const sceneRequestVersion = ++sceneRequestVersionRef.current;
     setIsAnalyzingStyle(true);
     try {
-      const service = getService();
-      const analysis = await service.analyzeReferenceImage(productImages, files[0]);
+      let profile = activeProductProfile;
+      if (!profile) profile = await analyzeStoredProduct(productImages, 'Producto');
+      const scene = await analyzeSceneReference(files[0], profile);
+      if (contextVersion !== productContextVersionRef.current || sceneRequestVersion !== sceneRequestVersionRef.current) return;
+      const analysis = wireProductAndScene(profile, scene);
+      setActiveProductProfile(profile);
       setAnalyzedData(analysis);
-      setPrompt(analysis.masterPrompt);
+      setPrompt(scene.scenePrompt);
+      setErrorMessage(null);
     } catch (e: any) {
+      if (contextVersion !== productContextVersionRef.current || sceneRequestVersion !== sceneRequestVersionRef.current) return;
       console.error("Análisis fallido", e);
-      setErrorMessage("Error al analizar la imagen de referencia: " + (e.message || "Error desconocido"));
-      if (e.message && e.message.includes("Requested entity was not found.")) {
-        setHasApiKey(false);
-        if (window.aistudio) {
-          await window.aistudio.openSelectKey();
-          setHasApiKey(true);
+      if (hasGeminiKey) {
+        try {
+          const fallbackAnalysis = await getService().analyzeReferenceImage(productImages, files[0]);
+          if (contextVersion === productContextVersionRef.current && sceneRequestVersion === sceneRequestVersionRef.current) {
+            setAnalyzedData(fallbackAnalysis);
+            setPrompt(fallbackAnalysis.masterPrompt);
+            setErrorMessage(null);
+          }
+        } catch (fallbackError: any) {
+          setAnalyzedData(null);
+          setErrorMessage("Error al analizar la imagen de referencia: " + (fallbackError.message || e.message || "Error desconocido"));
         }
+      } else {
+        setAnalyzedData(null);
+        setErrorMessage("Error al analizar la imagen de referencia: " + (e.message || "Error desconocido"));
       }
     } finally {
-      setIsAnalyzingStyle(false);
+      if (sceneRequestVersion === sceneRequestVersionRef.current) setIsAnalyzingStyle(false);
     }
   };
 
@@ -596,6 +626,17 @@ const App: React.FC = () => {
                   onClear={handleClearProduct}
                 />
 
+                {activeProductProfile && (
+                  <div className="p-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400">Perfil forense activo</span>
+                      <span className="text-[8px] font-black text-emerald-300">{activeProductProfile.confidence}%</span>
+                    </div>
+                    <p className="text-[10px] font-black text-white uppercase">{activeProductProfile.category || activeProductProfile.name}</p>
+                    <p className="text-[9px] leading-relaxed text-slate-500 line-clamp-3">{activeProductProfile.detectedDetails}</p>
+                  </div>
+                )}
+
                 {/* Divider */}
                 <div className="border-t border-white/5 -mx-10 px-10 pt-2">
                   <p className="text-[8px] font-black text-slate-700 uppercase tracking-widest mb-6">
@@ -608,11 +649,29 @@ const App: React.FC = () => {
                   maxFiles={5} 
                   images={productImages} 
                   onUpload={f => {
-                    setProductImages([...productImages, ...f]);
+                    productContextVersionRef.current += 1;
+                    sceneRequestVersionRef.current += 1;
+                    setProductImages(activeProductId ? f : [...productImages, ...f]);
                     setActiveProductId(null); // manual upload = detach from library product
+                    setActiveProductProfile(null);
+                    setAnalyzedData(null);
+                    setReferenceImage([]);
+                    setPrompt('');
+                    setSelectedShot(null);
+                    setResults([]);
+                    setErrorMessage(null);
                   }} 
                   onRemove={id => {
+                    productContextVersionRef.current += 1;
+                    sceneRequestVersionRef.current += 1;
                     setProductImages(productImages.filter(i => i.id !== id));
+                    setActiveProductProfile(null);
+                    setAnalyzedData(null);
+                    setReferenceImage([]);
+                    setPrompt('');
+                    setSelectedShot(null);
+                    setResults([]);
+                    setErrorMessage(null);
                     if (productImages.length <= 1) setActiveProductId(null);
                   }} 
                   description="Sube varios ángulos para fidelidad total." 
@@ -624,7 +683,7 @@ const App: React.FC = () => {
                     maxFiles={1} 
                     images={referenceImage} 
                     onUpload={handleStyleReferenceUpload} 
-                    onRemove={() => { setReferenceImage([]); setAnalyzedData(null); }} 
+                    onRemove={() => { sceneRequestVersionRef.current += 1; setReferenceImage([]); setAnalyzedData(null); setPrompt(''); }}
                     description="Clona la luz y atmósfera de esta imagen." 
                   />
                   {isAnalyzingStyle && (

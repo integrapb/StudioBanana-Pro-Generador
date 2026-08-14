@@ -7,6 +7,7 @@ import {
   deleteProduct,
   createSavedProduct,
 } from '../services/productStore';
+import { analyzeStoredProduct } from '../services/productAnalysisService';
 
 interface Props {
   activeProductId: string | null;
@@ -139,7 +140,21 @@ export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onC
     if (!newName.trim() || newImages.length === 0) return;
     setSaving(true);
     try {
-      const p = createSavedProduct(newName, newImages);
+      let p = createSavedProduct(newName, newImages);
+      await saveProduct(p);
+      try {
+        const productProfile = await analyzeStoredProduct(newImages, newName);
+        p = { ...p, productProfile };
+      } catch (error: any) {
+        p = {
+          ...p,
+          productProfile: {
+            ...p.productProfile!,
+            status: 'failed',
+            error: error.message || 'No fue posible analizar el producto.',
+          },
+        };
+      }
       await saveProduct(p);
       await load();
       setCreating(false);
@@ -211,7 +226,7 @@ export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onC
               disabled={!newName.trim() || newImages.length === 0 || saving}
               className="flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-xl transition-all active:scale-95"
             >
-              {saving ? 'Guardando...' : 'Guardar'}
+              {saving ? 'Analizando con IA...' : 'Guardar y analizar'}
             </button>
           </div>
         </div>
@@ -256,6 +271,9 @@ export const ProductLibrary: React.FC<Props> = ({ activeProductId, onSelect, onC
                   </p>
                   <p className="text-[8px] text-slate-600 mt-0.5">
                     {p.images.length} ángulo{p.images.length !== 1 ? 's' : ''}
+                  </p>
+                  <p className={`text-[7px] mt-1 font-black uppercase tracking-wide ${p.productProfile?.status === 'ready' ? 'text-emerald-500' : p.productProfile?.status === 'failed' ? 'text-amber-500' : 'text-slate-600'}`}>
+                    {p.productProfile?.status === 'ready' ? `Perfil IA ${p.productProfile.confidence}%` : p.productProfile?.status === 'failed' ? 'Perfil pendiente' : 'Sin perfil IA'}
                   </p>
                 </div>
 

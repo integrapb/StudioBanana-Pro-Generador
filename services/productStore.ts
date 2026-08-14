@@ -1,4 +1,4 @@
-import { ImageFile } from '../types';
+import { ImageFile, ProductProfile } from '../types';
 
 const DB_NAME = 'StudioBananaDB';
 const DB_VERSION = 1;
@@ -9,6 +9,7 @@ export interface SavedProduct {
   name: string;
   thumbnail: string;   // full data URL of first image – for display
   images: ImageFile[]; // all product angles (with correct preview field)
+  productProfile?: ProductProfile;
   createdAt: number;
 }
 
@@ -75,6 +76,11 @@ export function createSavedProduct(name: string, images: ImageFile[]): SavedProd
     // preview is the full "data:image/...;base64,..." URL — safe to store and display
     thumbnail: images[0]?.preview ?? '',
     images,
+    productProfile: {
+      category: '', name: name.trim(), materials: '', colors: '', protectedDetails: '',
+      detectedDetails: '', unknownDetails: '', notes: '', confidence: 0, audit: [],
+      productBlock: '', status: 'pending', version: 1,
+    },
     createdAt: Date.now(),
   };
 }

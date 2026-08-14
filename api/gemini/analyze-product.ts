@@ -1,6 +1,6 @@
 type ApiRequest = {
   method?: string;
-  body?: { references?: unknown };
+  body?: { references?: unknown; name?: unknown };
 };
 type ApiResponse = {
   status: (code: number) => ApiResponse;
@@ -45,8 +45,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return;
   }
   const references = request.body?.references;
-  if (!Array.isArray(references) || references.length < 2 || references.length > 3) {
-    response.status(400).json({ error: 'Sube dos o tres fotografías para crear el perfil con IA.' });
+  if (!Array.isArray(references) || references.length < 1 || references.length > 3) {
+    response.status(400).json({ error: 'Sube entre una y tres fotografías para crear el perfil con IA.' });
     return;
   }
   const imageParts = references.map((value) => typeof value === 'string' ? toInlineData(value) : null);
@@ -55,13 +55,14 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return;
   }
 
-  const prompt = `You are a cautious forensic commercial product analyst. Analyze only what is visibly supported by the supplied 2-3 product photographs. Do not invent dimensions, unseen sides, exact brand spelling, materials, or colors when they cannot be confirmed.
+  const suppliedName = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
+  const prompt = `You are a cautious forensic commercial product analyst. Analyze only what is visibly supported by the supplied product photographs. The user's product name is "${suppliedName || 'not supplied'}". Do not invent dimensions, unseen sides, exact brand spelling, materials, or colors when they cannot be confirmed.
 
 First identify the product category. If it is a hat or sombrero, perform this forensic audit IN THIS ORDER: 1) type and crown/hat block silhouette, 2) crown shape and visible creases, 3) brim width/curvature/edge finish, 4) material and finish, 5) color family and estimated hex colors, 6) hatband and hardware, 7) interior and markings, 8) wear and age, 9) apparent scale and size. For every point document only what you see. Never state inches, size, interior details, branding or material as fact unless visible. Mark unavailable information as not_visible.
 
 For other product categories, create a similarly practical visual audit of the most identity-critical features.
 
-Return ONLY valid JSON in Spanish with string fields: name, category, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails; numeric field confidence (0-100); and audit as an array of objects with exactly label, status, observation. status must be one of visible, estimated, not_visible. Use concise phrases. protectedDetails must identify visual details that must not change in later image generation.`;
+Return ONLY valid JSON in Spanish with string fields: name, category, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails; numeric field confidence (0-100); audit as an array of objects with exactly label, status, observation; and productBlock as a dense 80-150 word ENGLISH identity lock for an image generator. status must be one of visible, estimated, not_visible. Use concise phrases. protectedDetails must identify visual details that must not change. productBlock must describe only verified visual product identity, explicitly preserve distinctive geometry, color, materials, branding positions and wear, and must not contain scene, mood, camera or lighting instructions.`;
   try {
     const upstream = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-3-pro-image:generateContent', {
       method: 'POST',
@@ -90,6 +91,7 @@ Return ONLY valid JSON in Spanish with string fields: name, category, materials,
       unknownDetails: String(profile.unknownDetails || ''),
       confidence: Math.max(0, Math.min(100, Number(profile.confidence) || 0)),
       audit: sanitizeAudit(profile.audit),
+      productBlock: String(profile.productBlock || profile.detectedDetails || ''),
     } });
   } catch (error) {
     console.error('Product profile analysis failed', error);
