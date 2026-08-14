@@ -17,8 +17,9 @@ export class GeminiImageService {
     analyzedConcept?: AnalyzedConcept,
     shotOverride?: string,
     aspectRatio = '1:1',
+    promptIsCompiled = false,
   ): Promise<string> {
-    const prompt = buildProductPrompt(
+    const prompt = promptIsCompiled ? userPrompt : buildProductPrompt(
       productImages,
       referenceImage,
       userPrompt,

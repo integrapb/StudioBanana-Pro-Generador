@@ -55,9 +55,18 @@ export interface ProductProfile {
   version: number;
   analyzedAt?: number;
   error?: string;
+  imageViews?: ProductImageView[];
+}
+
+export interface ProductImageView {
+  index: number;
+  view: 'front' | 'back' | 'left' | 'right' | 'three-quarter' | 'top' | 'bottom' | 'detail' | 'unknown';
+  description: string;
+  confidence: number;
 }
 
 export interface SceneBlueprint {
+  composition?: string;
   lighting: string;
   environment: string;
   camera: string;
@@ -68,6 +77,19 @@ export interface SceneBlueprint {
   integrationRules: string;
   scenePrompt: string;
   confidence: number;
+  framing?: string;
+  cameraHeight?: string;
+  focalLength?: string;
+  depthOfField?: string;
+  timeOfDay?: string;
+  shadowBehavior?: string;
+  wardrobe?: string;
+  props?: string;
+  postProcessing?: string;
+  originalProduct?: string;
+  desiredProductView?: ProductImageView['view'];
+  copyElements?: string;
+  ignoreElements?: string;
 }
 
 export interface PreciseProductData {

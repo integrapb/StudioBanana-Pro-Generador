@@ -11,7 +11,7 @@ import { ImageMasker } from './components/ImageMasker';
 import { ComposerCanvas } from './components/ComposerCanvas';
 import { PreciseProductStudio } from './components/PreciseProductStudio';
 import { buildPreciseProductPrompt, selectPreciseProductReferences } from './services/preciseProductService';
-import { analyzeSceneReference, analyzeStoredProduct, wireProductAndScene } from './services/productAnalysisService';
+import { analyzeSceneReference, analyzeStoredProduct, compileGenerationPrompt, wireProductAndScene } from './services/productAnalysisService';
 
 
 const SHOT_TYPES = [
@@ -227,6 +227,7 @@ const App: React.FC = () => {
   const [analyzedData, setAnalyzedData] = useState<AnalyzedConcept | null>(null);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [hasCompiledPrompt, setHasCompiledPrompt] = useState(false);
   const [selectedShot, setSelectedShot] = useState<string | null>(null);
   const [selectedRatio, setSelectedRatio] = useState<string>('1:1');
   const [selectedEngine, setSelectedEngine] = useState<ImageModelId>(GEMINI_IMAGE_MODEL.id);
@@ -299,11 +300,13 @@ const App: React.FC = () => {
     // Fully replace product images — no mixing with previous product
     setProductImages(product.images);
     setActiveProductId(product.id);
-    setActiveProductProfile(product.productProfile?.status === 'ready' ? product.productProfile : null);
+    const readyProfile = product.productProfile?.status === 'ready' ? product.productProfile : null;
+    setActiveProductProfile(readyProfile);
     // Reset any existing analysis since it was based on a different product
     setAnalyzedData(null);
     setReferenceImage([]);
-    setPrompt('');
+    setPrompt(readyProfile ? compileGenerationPrompt(readyProfile) : '');
+    setHasCompiledPrompt(Boolean(readyProfile));
     setSelectedShot(null);
     setResults([]);
     setErrorMessage(null);
@@ -319,6 +322,7 @@ const App: React.FC = () => {
     setAnalyzedData(null);
     setReferenceImage([]);
     setPrompt('');
+    setHasCompiledPrompt(false);
     setSelectedShot(null);
     setResults([]);
     setErrorMessage(null);
@@ -414,9 +418,11 @@ const App: React.FC = () => {
       const scene = await analyzeSceneReference(files[0], profile);
       if (contextVersion !== productContextVersionRef.current || sceneRequestVersion !== sceneRequestVersionRef.current) return;
       const analysis = wireProductAndScene(profile, scene);
+      const compiledPrompt = compileGenerationPrompt(profile, scene);
       setActiveProductProfile(profile);
       setAnalyzedData(analysis);
-      setPrompt(scene.scenePrompt);
+      setPrompt(compiledPrompt);
+      setHasCompiledPrompt(true);
       setErrorMessage(null);
     } catch (e: any) {
       if (contextVersion !== productContextVersionRef.current || sceneRequestVersion !== sceneRequestVersionRef.current) return;
@@ -427,14 +433,17 @@ const App: React.FC = () => {
           if (contextVersion === productContextVersionRef.current && sceneRequestVersion === sceneRequestVersionRef.current) {
             setAnalyzedData(fallbackAnalysis);
             setPrompt(fallbackAnalysis.masterPrompt);
+            setHasCompiledPrompt(true);
             setErrorMessage(null);
           }
         } catch (fallbackError: any) {
           setAnalyzedData(null);
+          setHasCompiledPrompt(Boolean(activeProductProfile));
           setErrorMessage("Error al analizar la imagen de referencia: " + (fallbackError.message || e.message || "Error desconocido"));
         }
       } else {
         setAnalyzedData(null);
+        setHasCompiledPrompt(Boolean(activeProductProfile));
         setErrorMessage("Error al analizar la imagen de referencia: " + (e.message || "Error desconocido"));
       }
     } finally {
@@ -451,9 +460,12 @@ const App: React.FC = () => {
     try {
       for (let i = 0; i < variationCount; i++) {
         setProgress(p => ({ ...p, current: p.current + 1 }));
+        const generationPrompt = hasCompiledPrompt && i > 0
+          ? `${prompt}\n\nCONTROLLED VARIATION ${i + 1}: Preserve product identity and scene evidence; vary only a subtle photographic detail.`
+          : prompt;
         const url = selectedEngine === GEMINI_IMAGE_MODEL.id
-          ? await getGeminiImageService().generateProductImage(productImages, referenceImage[0] || null, prompt, i, analyzedData || undefined, undefined, selectedRatio)
-          : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productImages, referenceImage[0] || null, prompt, i, analyzedData || undefined, undefined, selectedRatio);
+          ? await getGeminiImageService().generateProductImage(productImages, referenceImage[0] || null, generationPrompt, i, analyzedData || undefined, undefined, selectedRatio, hasCompiledPrompt)
+          : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productImages, referenceImage[0] || null, generationPrompt, i, analyzedData || undefined, undefined, selectedRatio, hasCompiledPrompt);
         const engine = IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'IA';
         setResults(prev => [{ imageUrl: url, prompt, timestamp: Date.now() + i, engine }, ...prev]);
         if (i < variationCount - 1) {
@@ -464,9 +476,12 @@ const App: React.FC = () => {
       if (selectedShot) {
         setProgress(p => ({ ...p, current: p.current + 1 }));
         const shotInfo = SHOT_TYPES.find(s => s.id === selectedShot);
+        const shotPrompt = hasCompiledPrompt
+          ? `${prompt}\n\nCAMERA OVERRIDE: ${shotInfo?.label || selectedShot}. Preserve every product identity constraint.`
+          : prompt;
         const url = selectedEngine === GEMINI_IMAGE_MODEL.id
-          ? await getGeminiImageService().generateProductImage(productImages, referenceImage[0] || null, prompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio)
-          : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productImages, referenceImage[0] || null, prompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio);
+          ? await getGeminiImageService().generateProductImage(productImages, referenceImage[0] || null, shotPrompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio, hasCompiledPrompt)
+          : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productImages, referenceImage[0] || null, shotPrompt, 0, analyzedData || undefined, shotInfo?.label, selectedRatio, hasCompiledPrompt);
         const engine = IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'IA';
         setResults(prev => [{ imageUrl: url, prompt: `Especial: ${shotInfo?.label}`, timestamp: Date.now() + 99, engine }, ...prev]);
       }
@@ -507,8 +522,8 @@ const App: React.FC = () => {
       const precisePrompt = buildPreciseProductPrompt(preciseProductData);
       setProgress({ current: 1, total: 1 });
       const url = selectedEngine === GEMINI_IMAGE_MODEL.id
-        ? await getGeminiImageService().generateProductImage(productReferences, preciseProductData.sceneReference[0] || null, precisePrompt, 0, undefined, undefined, preciseProductData.aspectRatio)
-        : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productReferences, preciseProductData.sceneReference[0] || null, precisePrompt, 0, undefined, undefined, preciseProductData.aspectRatio);
+        ? await getGeminiImageService().generateProductImage(productReferences, preciseProductData.sceneReference[0] || null, precisePrompt, 0, undefined, undefined, preciseProductData.aspectRatio, true)
+        : await getOpenRouterService().generateProductImage(selectedEngine as OpenRouterImageModel, productReferences, preciseProductData.sceneReference[0] || null, precisePrompt, 0, undefined, undefined, preciseProductData.aspectRatio, true);
       const engine = IMAGE_MODELS.find(model => model.id === selectedEngine)?.label || 'IA';
       setPreciseResults(prev => [{ imageUrl: url, prompt: precisePrompt, timestamp: Date.now(), engine }, ...prev]);
       setStatus(AppStatus.SUCCESS);
@@ -657,6 +672,7 @@ const App: React.FC = () => {
                     setAnalyzedData(null);
                     setReferenceImage([]);
                     setPrompt('');
+                    setHasCompiledPrompt(false);
                     setSelectedShot(null);
                     setResults([]);
                     setErrorMessage(null);
@@ -669,6 +685,7 @@ const App: React.FC = () => {
                     setAnalyzedData(null);
                     setReferenceImage([]);
                     setPrompt('');
+                    setHasCompiledPrompt(false);
                     setSelectedShot(null);
                     setResults([]);
                     setErrorMessage(null);
@@ -683,7 +700,13 @@ const App: React.FC = () => {
                     maxFiles={1} 
                     images={referenceImage} 
                     onUpload={handleStyleReferenceUpload} 
-                    onRemove={() => { sceneRequestVersionRef.current += 1; setReferenceImage([]); setAnalyzedData(null); setPrompt(''); }}
+                    onRemove={() => {
+                      sceneRequestVersionRef.current += 1;
+                      setReferenceImage([]);
+                      setAnalyzedData(null);
+                      setPrompt(activeProductProfile ? compileGenerationPrompt(activeProductProfile) : '');
+                      setHasCompiledPrompt(Boolean(activeProductProfile));
+                    }}
                     description="Clona la luz y atmósfera de esta imagen." 
                   />
                   {isAnalyzingStyle && (

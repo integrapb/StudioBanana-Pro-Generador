@@ -33,6 +33,23 @@ function sanitizeAudit(audit: unknown) {
   });
 }
 
+function sanitizeImageViews(views: unknown, imageCount: number) {
+  const allowed = new Set(['front', 'back', 'left', 'right', 'three-quarter', 'top', 'bottom', 'detail', 'unknown']);
+  if (!Array.isArray(views)) return [];
+  return views.slice(0, imageCount).map((item, fallbackIndex) => {
+    const record = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+    const rawIndex = Number(record.index);
+    const index = Number.isInteger(rawIndex) && rawIndex >= 0 && rawIndex < imageCount ? rawIndex : fallbackIndex;
+    const rawView = String(record.view || 'unknown');
+    return {
+      index,
+      view: allowed.has(rawView) ? rawView : 'unknown',
+      description: String(record.description || 'Vista del producto'),
+      confidence: Math.max(0, Math.min(100, Number(record.confidence) || 0)),
+    };
+  });
+}
+
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   response.setHeader('Cache-Control', 'no-store');
   if (request.method !== 'POST') {
@@ -56,15 +73,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   const suppliedName = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
-  const prompt = `You are a cautious forensic commercial product analyst. Analyze only what is visibly supported by the supplied product photographs. The user's product name is "${suppliedName || 'not supplied'}". Do not invent dimensions, unseen sides, exact brand spelling, materials, or colors when they cannot be confirmed.
+  const prompt = `You are a forensic product identity analyst for high-end commercial photography. Analyze the supplied product photographs as evidence of ONE real physical product. The user's product name is "${suppliedName || 'not supplied'}". Never invent dimensions, unseen sides, brand spelling, materials or colors when evidence is insufficient.
+
+For each input image, create one imageViews entry using its zero-based input index. Classify view as exactly one of: front, back, left, right, three-quarter, top, bottom, detail, unknown. Describe visible geometry and assign confidence 0-100.
+
+Build identity evidence in three levels: visible facts, cautious estimates, and not visible. Capture silhouette, proportions, distinctive geometry, construction, surface, reflectivity, transparency, exact visible colors, logos/text positions, seams, edges, closures, hardware, wear and imperfections.
 
 First identify the product category. If it is a hat or sombrero, perform this forensic audit IN THIS ORDER: 1) type and crown/hat block silhouette, 2) crown shape and visible creases, 3) brim width/curvature/edge finish, 4) material and finish, 5) color family and estimated hex colors, 6) hatband and hardware, 7) interior and markings, 8) wear and age, 9) apparent scale and size. For every point document only what you see. Never state inches, size, interior details, branding or material as fact unless visible. Mark unavailable information as not_visible.
 
-For other product categories, create a similarly practical visual audit of the most identity-critical features.
+For other categories, create a similarly practical audit focused on features that distinguish this exact product from a similar substitute.
 
-Return ONLY valid JSON in Spanish with string fields: name, category, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails; numeric field confidence (0-100); audit as an array of objects with exactly label, status, observation; and productBlock as a dense 80-150 word ENGLISH identity lock for an image generator. status must be one of visible, estimated, not_visible. Use concise phrases. protectedDetails must identify visual details that must not change. productBlock must describe only verified visual product identity, explicitly preserve distinctive geometry, color, materials, branding positions and wear, and must not contain scene, mood, camera or lighting instructions.`;
+Return ONLY valid JSON in Spanish with string fields name, category, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails; numeric confidence; audit array with label, status, observation; imageViews array with index, view, description, confidence; and productBlock as a dense 100-180 word ENGLISH identity lock. status must be visible, estimated or not_visible. productBlock must contain only product identity, lead with the most distinctive geometry, distinguish verified facts from unknowns, preserve branding positions and wear, and contain no scene, mood, camera or lighting instructions.`;
   try {
-    const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent', {
+    const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', {
       method: 'POST',
       headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -92,6 +113,7 @@ Return ONLY valid JSON in Spanish with string fields: name, category, materials,
       confidence: Math.max(0, Math.min(100, Number(profile.confidence) || 0)),
       audit: sanitizeAudit(profile.audit),
       productBlock: String(profile.productBlock || profile.detectedDetails || ''),
+      imageViews: sanitizeImageViews(profile.imageViews, references.length),
     } });
   } catch (error) {
     console.error('Product profile analysis failed', error);

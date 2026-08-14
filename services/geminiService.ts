@@ -34,7 +34,7 @@ export interface PromptVariant {
 
 export class GeminiService {
   private modelName = 'gemini-3.1-flash-image';         // Nano Banana 2: multi-image coherence + 4K
-  private analysisModelName = 'gemini-3-pro-image';  // Deep scene & product forensics
+  private analysisModelName = 'gemini-3.5-flash';  // Multimodal text analysis; image generation uses a separate model
 
   private getApiKey(): string {
     if (typeof window !== 'undefined') {
