@@ -3,6 +3,16 @@ import type { AnalyzedConcept } from './geminiService';
 
 export const OPENROUTER_IMAGE_MODELS = [
   {
+    id: 'openai/gpt-image-2.5-sunburst',
+    label: 'GPT Image 2.5 Sunburst',
+    description: 'Mayor precisión para detalles y edición de producto',
+  },
+  {
+    id: 'openai/gpt-image-2.5-flare',
+    label: 'GPT Image 2.5 Flare',
+    description: 'Generación rápida de fotografías de producto',
+  },
+  {
     id: 'bytedance-seed/seedream-5-0-pro',
     label: 'Seedream 5 Pro',
     description: 'Alta resolución para fotografía de producto',

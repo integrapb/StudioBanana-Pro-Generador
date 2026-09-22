@@ -749,7 +749,7 @@ const App: React.FC = () => {
                     ))}
                   </div>
                   <p className="text-[9px] text-slate-500 leading-relaxed">
-                    Para máxima fidelidad, prueba primero GPT Image 2 con 1–3 ángulos nítidos del producto.
+                    Para máxima fidelidad, prueba primero GPT Image 2.5 Sunburst con 1–3 ángulos nítidos del producto.
                   </p>
                 </div>
 
