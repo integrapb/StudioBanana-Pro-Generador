@@ -26,7 +26,7 @@ Separate what should be copied from what must be ignored. productPlacement must 
 
 Return ONLY valid JSON in Spanish with string fields composition, lighting, environment, camera, colorPalette, aesthetic, subject, productPlacement, integrationRules, scenePrompt, framing, cameraHeight, focalLength, depthOfField, timeOfDay, shadowBehavior, wardrobe, props, postProcessing, originalProduct, copyElements, ignoreElements; desiredProductView as exactly front, back, left, right, three-quarter, top, bottom, detail or unknown; and numeric confidence. scenePrompt must be concise ENGLISH photographic direction describing scene, subject, camera and light only, never the replacement product identity.`;
   try {
-    const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', {
+    const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', {
       method: 'POST',
       headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [reference, { text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } }),

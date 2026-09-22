@@ -85,7 +85,7 @@ For other categories, create a similarly practical audit focused on features tha
 
 Return ONLY valid JSON in Spanish with string fields name, category, materials, colors, protectedDetails, notes, detectedDetails, unknownDetails; numeric confidence; audit array with label, status, observation; imageViews array with index, view, description, confidence; and productBlock as a dense 100-180 word ENGLISH identity lock. status must be visible, estimated or not_visible. productBlock must contain only product identity, lead with the most distinctive geometry, distinguish verified facts from unknowns, preserve branding positions and wear, and contain no scene, mood, camera or lighting instructions.`;
   try {
-    const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', {
+    const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', {
       method: 'POST',
       headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
